@@ -338,7 +338,7 @@ go(['overview', 'users', 'reports'].includes(startView) ? startView : 'overview'
 let poll = null;
 function screen(...kids) {
   const g = $('#gate'); g.hidden = false; $('.app').hidden = true;
-  rc(g, el('div', { class: 'gate-card' }, el('div', { class: 'gate-logo' }, el('b', null, 'NoonFrame'), el('small', null, 'Admin')), ...kids));
+  rc(g, el('div', { class: 'gate-card' }, el('div', { class: 'gate-logo' }, el('img', { src: 'logo.png', alt: '' }), el('b', null, 'NoonFrame'), el('small', null, 'Admin')), ...kids));
 }
 function codeForm(label, onCode) {
   const inp = el('input', { class: 'gate-code', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6', placeholder: '000000', 'aria-label': 'Codice a 6 cifre' });
