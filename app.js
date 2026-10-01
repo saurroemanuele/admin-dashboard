@@ -86,6 +86,7 @@ async function load(view, force) {
     if (view === 'overview' || force || !S.ov) { S.ov = await sql('overview'); }
     if (view === 'users' && (force || !S.users)) S.users = await sql('users', { limit: 2000 });
     if (view === 'reports' && (force || !S.reports)) S.reports = await sql('reports', {});
+    if (view === 'beta' && (force || !S.beta)) S.beta = await sql('beta_list');
     S.err = null; lastLoad = new Date();
   } catch (e) { S.err = explain(e); }
   const n = S.ov ? S.ov.reports_new : 0;
@@ -99,6 +100,7 @@ function render() {
   if (S.view === 'overview') rc(main, head('Panoramica'), el('div', { class: 'body' }, S.err ? el('div', { class: 'err' }, S.err) : null, S.ov ? overview(S.ov) : el('div', { class: 'loading' }, 'Caricamento…')));
   if (S.view === 'users') renderUsers(main);
   if (S.view === 'reports') renderReports(main);
+  if (S.view === 'beta') renderBeta(main);
 }
 const head = (title, ...right) => el('div', { class: 'head' }, el('h1', null, title), ...right);
 
@@ -170,6 +172,39 @@ function renderUsers(main) {
         el('td', null, u.blocked ? el('span', { class: 'pill bad' }, 'Bloccato') : ''))))));
   }
   paintTable();
+}
+
+// ------------------------------------------------------------------ beta tester: solo queste email vedono le versioni beta nell'app
+function renderBeta(main) {
+  const email = el('input', { class: 'search', type: 'email', placeholder: 'email@esempio.com', 'aria-label': 'Email da aggiungere', autocomplete: 'off' });
+  const note = el('input', { class: 'search', type: 'text', placeholder: 'Nota (facoltativa)', 'aria-label': 'Nota', maxlength: '200' });
+  const add = el('button', { class: 'btn primary', type: 'submit' }, 'Aggiungi');
+  const form = el('form', { class: 'beta-add' }, email, note, add);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const v = email.value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { toast('Email non valida'); email.focus(); return; }
+    add.disabled = true;
+    try { S.beta = await sql('beta_set', { email: v, note: note.value.trim(), on: true }); toast('Aggiunto ai beta tester'); renderBeta(main); }
+    catch (err) { toast(explain(err)); add.disabled = false; }
+  });
+  const list = el('div', { class: 'tblwrap' });
+  rc(main, head('Beta tester'), el('div', { class: 'body' }, S.err ? el('div', { class: 'err' }, S.err) : null,
+    el('p', { class: 'beta-info' }, 'Solo questi account vedono "Versioni beta" in fondo alla home di NoonFrame. Se togli un\'email, la sua app torna da sola alle versioni stabili.'),
+    form, list));
+  if (!S.beta) { rc(list, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  if (!S.beta.length) { rc(list, el('div', { class: 'empty' }, 'Nessun beta tester.')); return; }
+  rc(list, el('table', { class: 'tbl' },
+    el('thead', null, el('tr', null, el('th', null, 'Email'), el('th', { class: 'hide-m' }, 'Nota'), el('th', null, 'Account'), el('th', { class: 'hide-m' }, 'Aggiunto'), el('th', null, ''))),
+    el('tbody', null, ...S.beta.map((b) => el('tr', null,
+      el('td', null, b.email), el('td', { class: 'hide-m' }, b.note || ''),
+      el('td', null, b.registered ? el('span', { class: 'pill done' }, 'Registrato') : el('span', { class: 'pill no' }, 'Non ancora')),
+      el('td', { class: 'hide-m' }, when(b.added_at)),
+      el('td', { style: 'text-align:right' }, el('button', { class: 'btn sm bad', type: 'button', onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        try { S.beta = await sql('beta_set', { email: b.email, on: false }); toast('Rimosso dai beta tester'); renderBeta(main); }
+        catch (err) { toast(explain(err)); }
+      } }, 'Togli')))))));
 }
 
 async function openUser(id) {
@@ -333,7 +368,7 @@ document.addEventListener('keydown', (e) => {
 // ------------------------------------------------------------------ avvio
 let startView = 'overview';
 try { startView = localStorage.getItem('nuvora.admin.view') || 'overview'; } catch (e) { /* */ }
-go(['overview', 'users', 'reports'].includes(startView) ? startView : 'overview');
+go(['overview', 'users', 'reports', 'beta'].includes(startView) ? startView : 'overview');
 // ------------------------------------------------------------------ accesso: Google + codice dell'app di autenticazione (2 passaggi)
 let poll = null;
 function screen(...kids) {
