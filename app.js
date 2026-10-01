@@ -272,7 +272,7 @@ function marginBox(price, credits, label) {
 // segue i campi e ricalcola mentre scrivi
 function liveMargin(get, label) {
   const slot = el('div');
-  const upd = () => { const [p, c] = get(); rc(slot, marginBox(p, c, label)); };
+  const upd = () => { const [p, c] = get(); rc(slot, marginBox(p, c, typeof label === 'function' ? label() : label)); };
   upd();
   return { slot, upd };
 }
