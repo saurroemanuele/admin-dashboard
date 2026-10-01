@@ -246,6 +246,45 @@ function creditsBox(uid) {
 }
 
 // ------------------------------------------------------------------ crediti e offerte: listino modificabile + offerte lampo
+// conti: IVA, commissione del pagamento, cambio $->€ e crediti per $ di costo (come la funzione "ai")
+const ECO_DEF = { vat: 22, feeP: 5, feeF: 0.5, fx: 0.9, perUsd: 280 };
+let ECO = { ...ECO_DEF };
+try { ECO = { ...ECO_DEF, ...JSON.parse(localStorage.getItem('nf.admin.eco') || '{}') }; } catch (e) { /* */ }
+function margin(price, credits) {
+  price = +price || 0; credits = +credits || 0;
+  const net = price / (1 + ECO.vat / 100), fee = price > 0 ? price * ECO.feeP / 100 + ECO.feeF : 0, keep = net - fee;
+  const api = credits / ECO.perUsd * ECO.fx;
+  const m = keep - api, m60 = keep - api * 0.6;
+  const minPrice = (api + ECO.feeF) / (1 / (1 + ECO.vat / 100) - ECO.feeP / 100);
+  return { net, fee, keep, api, m, m60, pct: keep > 0 ? m / keep * 100 : -100, minPrice };
+}
+function marginBox(price, credits, label) {
+  const r = margin(price, credits);
+  const cls = r.m < 0 ? 'bad' : r.pct < 25 ? 'warn' : 'ok';
+  return el('div', { class: 'mbox ' + cls },
+    el('div', { class: 'mrow' }, el('span', null, label || 'Ti resta (dopo IVA e commissioni)'), el('b', null, eur(r.keep))),
+    el('div', { class: 'mrow' }, el('span', null, 'Costo API se usa tutti i crediti'), el('b', null, '− ' + eur(r.api))),
+    el('div', { class: 'mrow tot' }, el('span', null, 'Margine'), el('b', null, eur(r.m) + (r.keep > 0 ? ' (' + Math.round(r.pct) + '%)' : ''))),
+    el('div', { class: 'mrow sub' }, el('span', null, 'Se usa il 60% dei crediti'), el('b', null, eur(r.m60))),
+    r.m < 0 ? el('div', { class: 'mnote' }, 'In perdita se l\'utente usa tutti i crediti. Prezzo minimo per non perdere: ' + eur(r.minPrice))
+      : r.pct < 25 ? el('div', { class: 'mnote' }, 'Margine basso: va bene come promozione, non come prezzo fisso.') : null);
+}
+// segue i campi e ricalcola mentre scrivi
+function liveMargin(get, label) {
+  const slot = el('div');
+  const upd = () => { const [p, c] = get(); rc(slot, marginBox(p, c, label)); };
+  upd();
+  return { slot, upd };
+}
+function ecoPanel(onChange) {
+  const f = (k, lbl, step) => { const i = el('input', { class: 'search', type: 'number', step: step || '0.01', value: ECO[k] });
+    i.addEventListener('input', () => { ECO[k] = +i.value || 0; try { localStorage.setItem('nf.admin.eco', JSON.stringify(ECO)); } catch (e) { /* */ } onChange(); });
+    return el('label', { class: 'fld' }, el('span', null, lbl), i); };
+  return el('details', { class: 'box eco' }, el('summary', null, 'Ipotesi dei conti (IVA ' + ECO.vat + '%, commissione ' + ECO.feeP + '% + ' + eur(ECO.feeF) + ', 1 $ = ' + ECO.fx + ' €)'),
+    el('div', { class: 'fgrid' }, f('vat', 'IVA %', '1'), f('feeP', 'Commissione %', '0.1'), f('feeF', 'Commissione fissa €'), f('fx', 'Cambio: 1 $ in €'), f('perUsd', 'Crediti per 1 $ di costo', '1')),
+    el('div', { class: 'row', style: 'margin-top:8px' }, el('button', { class: 'btn sm', type: 'button', onclick: () => { ECO = { ...ECO_DEF }; try { localStorage.removeItem('nf.admin.eco'); } catch (e) { /* */ } onChange(); } }, 'Valori iniziali'),
+      el('small', { class: 'muted' }, '"Crediti per 1 $" deve restare uguale a quello del server (oggi 280).')));
+}
 const AUD = { all: 'Tutti', free: 'Solo utenti gratis', paid: 'Solo abbonati', new: 'Nuovi iscritti (7 giorni)' };
 const toLocal = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
 function renderShop(main) {
@@ -257,6 +296,8 @@ function renderShop(main) {
   if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
   if (!S.shop) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
   const save = async (op, item, msg) => { try { S.shop = await sql('catalog', { op, item }); toast(msg); renderShop(main); } catch (e) { toast(explain(e)); } };
+  const eco = ecoPanel(() => renderShop(main));
+  const planOf = (id) => (S.shop.plans || []).find((p) => p.id === id) || {};
   const st = S.shop.stats || {}, bp = st.byPlan || {};
   const stats = el('div', { class: 'cards shop-stats' },
     ...['free', 'starter', 'pro', 'ultimate'].map((k) => el('div', { class: 'card stat' }, el('b', null, num(bp[k] || 0)), el('span', null, k === 'free' ? 'Utenti gratis' : 'Abbonati ' + ((S.shop.plans.find((p) => p.id === k) || {}).name || k)))),
@@ -270,6 +311,8 @@ function renderShop(main) {
       return el('tr', null,
         el('td', null, el('b', null, o.title), el('div', { class: 'muted', style: 'font-size:12px' }, o.kind === 'pack' ? num(o.credits) + ' crediti a vita' : 'Piano ' + o.plan_id + ' per ' + o.months + (o.months === 1 ? ' mese' : ' mesi'))),
         el('td', null, eur(o.price_eur), o.kind === 'plan' ? el('span', { class: 'muted' }, ' /mese') : null),
+        (() => { const r = margin(o.price_eur, o.kind === 'pack' ? o.credits : planOf(o.plan_id).monthly);
+          return el('td', { class: 'hide-m' }, el('span', { class: 'mtag ' + (r.m < 0 ? 'bad' : r.pct < 25 ? 'warn' : 'ok') }, eur(r.m) + (o.kind === 'plan' ? ' /mese' : ''))); })(),
         el('td', { class: 'hide-m' }, AUD[o.audience] || o.audience),
         el('td', null, full(o.ends_at)),
         el('td', { class: 'num hide-m' }, num(o.sold)),
@@ -278,18 +321,18 @@ function renderShop(main) {
           el('button', { class: 'btn sm', type: 'button', onclick: () => offerForm(o) }, 'Modifica'), ' ',
           live ? el('button', { class: 'btn sm bad', type: 'button', onclick: () => sql('catalog', { op: 'stop_offer', id: o.id }).then((r) => { S.shop = r; toast('Offerta fermata'); renderShop(main); }).catch((e) => toast(explain(e))) }, 'Ferma') : null));
     });
-    rc(body, stats,
+    rc(body, stats, eco,
       el('div', { class: 'row', style: 'justify-content:space-between;margin:18px 0 10px' }, el('p', { class: 'muted', style: 'margin:0' }, 'Le offerte compaiono subito nell\'app: banner in home e in "Crediti e piani", con il conto alla rovescia.'),
         el('button', { class: 'btn primary', type: 'button', onclick: () => offerForm(null) }, '+ Nuova offerta')),
-      rows.length ? el('div', { class: 'tblwrap' }, el('table', { class: 'tbl' }, el('thead', null, el('tr', null, el('th', null, 'Offerta'), el('th', null, 'Prezzo'), el('th', { class: 'hide-m' }, 'Per chi'), el('th', null, 'Scade'), el('th', { class: 'hide-m', style: 'text-align:right' }, 'Vendute'), el('th', null, 'Stato'), el('th', null, ''))), el('tbody', null, ...rows)))
+      rows.length ? el('div', { class: 'tblwrap' }, el('table', { class: 'tbl' }, el('thead', null, el('tr', null, el('th', null, 'Offerta'), el('th', null, 'Prezzo'), el('th', { class: 'hide-m', 'data-tip': 'Margine se l\'utente usa tutti i crediti' }, 'Margine'), el('th', { class: 'hide-m' }, 'Per chi'), el('th', null, 'Scade'), el('th', { class: 'hide-m', style: 'text-align:right' }, 'Vendute'), el('th', null, 'Stato'), el('th', null, ''))), el('tbody', null, ...rows)))
         : el('div', { class: 'empty' }, 'Nessuna offerta. Creane una: crediti a vita a prezzo speciale, o un abbonamento scontato per i primi mesi.'));
   } else if (S.stab === 'plans') {
     const list = (S.shop.plans || []).filter((p) => p.id !== 'free');
-    rc(body, stats, el('p', { class: 'muted', style: 'margin:18px 0 10px' }, 'I prezzi cambiano subito per chi apre "Crediti e piani". Chi ha già un piano lo mantiene alle condizioni attuali fino al rinnovo.'),
+    rc(body, stats, eco, el('p', { class: 'muted', style: 'margin:18px 0 10px' }, 'I prezzi cambiano subito per chi apre "Crediti e piani". Chi ha già un piano lo mantiene alle condizioni attuali fino al rinnovo.'),
       el('div', { class: 'shop-grid' }, ...list.map((p) => planCard(p)), planCard(null)));
   } else {
     const list = S.shop.packs || [];
-    rc(body, stats, el('p', { class: 'muted', style: 'margin:18px 0 10px' }, 'Le ricariche danno crediti che non scadono mai.'),
+    rc(body, stats, eco, el('p', { class: 'muted', style: 'margin:18px 0 10px' }, 'Le ricariche danno crediti che non scadono mai.'),
       el('div', { class: 'shop-grid' }, ...list.map((k) => packCard(k)), packCard(null)));
   }
 
@@ -312,6 +355,7 @@ function renderShop(main) {
         field('Generazioni insieme', f.maxPending), field('Ordine', f.sort)),
       field('Frase sotto il nome', f.tagline), field('In inglese', f.taglineEn),
       field('Vantaggi (uno per riga)', f.perks), field('Vantaggi in inglese', f.perksEn),
+      (() => { const lm = liveMargin(() => [f.price.value, f.monthly.value], 'Ti resta ogni mese'); f.price.addEventListener('input', lm.upd); f.monthly.addEventListener('input', lm.upd); return lm.slot; })(),
       el('div', { class: 'row', style: 'gap:16px' }, el('label', { class: 'chk' }, f.premium, ' Modelli premium'), el('label', { class: 'chk' }, f.active, ' In vendita')),
       el('button', { class: 'btn primary sm', type: 'button', onclick: () => save('save_plan', { id: n ? f.id.value.trim().toLowerCase() : p.id, name: f.name.value.trim(), price: f.price.value, monthly: f.monthly.value,
         maxPending: f.maxPending.value, sort: f.sort.value, premium: f.premium.checked, active: f.active.checked, tagline: f.tagline.value.trim(), taglineEn: f.taglineEn.value.trim(), perks: lines(f.perks), perksEn: lines(f.perksEn) }, 'Piano salvato') }, n ? 'Crea piano' : 'Salva'));
@@ -323,6 +367,7 @@ function renderShop(main) {
       sort: el('input', { class: 'search', type: 'number', step: '1', value: k.sort }), active: el('input', { type: 'checkbox', checked: k.active ? true : null }) };
     return el('div', { class: 'card shop-card' + (k.active ? '' : ' off') }, el('h2', null, n ? 'Nuova ricarica' : k.name),
       el('div', { class: 'fgrid' }, n ? field('Codice', f.id) : null, field('Nome', f.name), field('Prezzo (€)', f.price), field('Crediti', f.credits), field('Ordine', f.sort)),
+      (() => { const lm = liveMargin(() => [f.price.value, f.credits.value]); f.price.addEventListener('input', lm.upd); f.credits.addEventListener('input', lm.upd); return lm.slot; })(),
       el('label', { class: 'chk' }, f.active, ' In vendita'),
       el('button', { class: 'btn primary sm', type: 'button', onclick: () => save('save_pack', { id: n ? f.id.value.trim().toLowerCase() : k.id, name: f.name.value.trim(), price: f.price.value, credits: f.credits.value, sort: f.sort.value, active: f.active.checked }, 'Ricarica salvata') }, n ? 'Crea ricarica' : 'Salva'));
   }
@@ -350,8 +395,11 @@ function renderShop(main) {
     const bg = el('div', { class: 'modal-bg' });
     const close = () => bg.remove();
     const priceOf = () => (f.kind.value === 'pack' ? f.price : f.pprice).value;
+    const lm = liveMargin(() => f.kind.value === 'pack' ? [f.price.value, f.credits.value] : [f.pprice.value, planOf(f.plan.value).monthly],
+      () => f.kind.value === 'pack' ? undefined : 'Ti resta ogni mese (prezzo scontato)');
+    [f.price, f.credits, f.pprice, f.plan, f.kind].forEach((x) => { x.addEventListener('input', lm.upd); x.addEventListener('change', lm.upd); });
     rc(bg, el('div', { class: 'modal shop-modal', role: 'dialog' }, el('h2', null, n ? 'Nuova offerta lampo' : 'Modifica offerta'),
-      field('Tipo', f.kind), packRow, planRow,
+      field('Tipo', f.kind), packRow, planRow, lm.slot,
       el('div', { class: 'fgrid' }, field('Titolo', f.title), field('Etichetta', f.badge, 'Appare in un angolo, es. -40%')),
       field('Sottotitolo', f.subtitle),
       el('details', null, el('summary', null, 'Testi in inglese (facoltativi)'), field('Titolo in inglese', f.titleEn), field('Sottotitolo in inglese', f.subtitleEn)),

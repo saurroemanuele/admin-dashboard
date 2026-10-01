@@ -235,3 +235,16 @@ pre { margin: 10px 0 0; font: 12px/1.5 var(--mono); color: var(--text2); white-s
 .crbox .ev { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; }
 select.search { padding: 0 8px; }
 @media (max-width: 900px) { .shop-body { padding: 16px; } }
+
+/* calcolo del margine */
+.mbox { border-radius: 10px; padding: 10px 12px; border: 1px solid var(--line2); background: var(--raised); display: grid; gap: 4px; font-size: 12.5px; }
+.mbox .mrow { display: flex; justify-content: space-between; gap: 12px; color: var(--text2); }
+.mbox .mrow b { color: var(--text); font-variant-numeric: tabular-nums; }
+.mbox .mrow.tot { border-top: 1px solid var(--line2); padding-top: 5px; margin-top: 2px; font-size: 13.5px; }
+.mbox .mrow.sub { font-size: 12px; }
+.mbox.ok .mrow.tot b { color: var(--ok); }
+.mbox.warn { border-color: rgba(255,181,71,.45); } .mbox.warn .mrow.tot b { color: #FFB547; }
+.mbox.bad { border-color: rgba(255,123,114,.5); background: var(--bug-soft); } .mbox.bad .mrow.tot b { color: var(--bug); }
+.mbox .mnote { font-size: 12px; color: var(--text); margin-top: 2px; }
+.mtag { font-weight: 600; font-variant-numeric: tabular-nums; } .mtag.ok { color: var(--ok); } .mtag.warn { color: #FFB547; } .mtag.bad { color: var(--bug); }
+.box.eco { margin-top: 14px; } .box.eco summary { cursor: pointer; color: var(--text2); font-size: 13px; }
