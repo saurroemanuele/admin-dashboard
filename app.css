@@ -207,6 +207,8 @@ pre { margin: 10px 0 0; font: 12px/1.5 var(--mono); color: var(--text2); white-s
 .nav-foot { flex-wrap: wrap; }
 
 /* beta tester */
+.beta-body { padding: 18px 24px; }
+@media (max-width: 900px) { .beta-body { padding: 16px; } }
 .beta-info { margin: 0 0 14px; color: var(--text2); max-width: 640px; }
 .beta-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .beta-add .search { width: min(260px, 100%); }

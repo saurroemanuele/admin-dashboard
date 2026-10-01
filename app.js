@@ -189,7 +189,7 @@ function renderBeta(main) {
     catch (err) { toast(explain(err)); add.disabled = false; }
   });
   const list = el('div', { class: 'tblwrap' });
-  rc(main, head('Beta tester'), el('div', { class: 'body' }, S.err ? el('div', { class: 'err' }, S.err) : null,
+  rc(main, head('Beta tester'), el('div', { class: 'body beta-body' }, S.err ? el('div', { class: 'err' }, S.err) : null,
     el('p', { class: 'beta-info' }, 'Solo questi account vedono "Versioni beta" in fondo alla home di NoonFrame. Se togli un\'email, la sua app torna da sola alle versioni stabili.'),
     form, list));
   if (!S.beta) { rc(list, el('div', { class: 'loading' }, 'Caricamento…')); return; }
