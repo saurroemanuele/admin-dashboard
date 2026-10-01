@@ -212,3 +212,26 @@ pre { margin: 10px 0 0; font: 12px/1.5 var(--mono); color: var(--text2); white-s
 .beta-info { margin: 0 0 14px; color: var(--text2); max-width: 640px; }
 .beta-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .beta-add .search { width: min(260px, 100%); }
+
+/* crediti e offerte */
+.shop-body { padding: 18px 24px 32px; overflow-y: auto; }
+.shop-stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.card.stat { display: flex; flex-direction: column; gap: 4px; }
+.card.stat b { font-size: 22px; letter-spacing: -0.02em; }
+.card.stat span { color: var(--text2); font-size: 12.5px; }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.shop-card { display: flex; flex-direction: column; gap: 10px; }
+.shop-card.off { opacity: .6; }
+.shop-card h2 { margin: 0; font-size: 15px; color: var(--text); text-transform: none; letter-spacing: 0; }
+.fgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text2); }
+.fld .search, .fld select, .fld textarea { width: 100%; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.row.wrap { flex-wrap: wrap; }
+.modal.shop-modal { max-height: calc(100vh - 32px); overflow-y: auto; gap: 12px; }
+.modal.shop-modal h2 { margin: 0; font-size: 17px; }
+.modal.shop-modal details summary { cursor: pointer; color: var(--text2); font-size: 13px; margin-bottom: 8px; }
+.crbox .ev b.pos { color: var(--ok); } .crbox .ev b.neg { color: var(--text2); }
+.crbox .ev { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; }
+select.search { padding: 0 8px; }
+@media (max-width: 900px) { .shop-body { padding: 16px; } }

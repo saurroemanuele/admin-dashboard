@@ -87,6 +87,7 @@ async function load(view, force) {
     if (view === 'users' && (force || !S.users)) S.users = await sql('users', { limit: 2000 });
     if (view === 'reports' && (force || !S.reports)) S.reports = await sql('reports', {});
     if (view === 'beta' && (force || !S.beta)) S.beta = await sql('beta_list');
+    if (view === 'shop' && (force || !S.shop)) S.shop = await sql('catalog', { op: 'list' });
     S.err = null; lastLoad = new Date();
   } catch (e) { S.err = explain(e); }
   const n = S.ov ? S.ov.reports_new : 0;
@@ -101,6 +102,7 @@ function render() {
   if (S.view === 'users') renderUsers(main);
   if (S.view === 'reports') renderReports(main);
   if (S.view === 'beta') renderBeta(main);
+  if (S.view === 'shop') renderShop(main);
 }
 const head = (title, ...right) => el('div', { class: 'head' }, el('h1', null, title), ...right);
 
@@ -207,6 +209,170 @@ function renderBeta(main) {
       } }, 'Togli')))))));
 }
 
+// ------------------------------------------------------------------ crediti di un utente (nel pannello utente)
+const eur = (n) => (+n || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+const num = (n) => Math.round(+n || 0).toLocaleString('it-IT');
+const KIND = { welcome: 'Benvenuto', gift: 'Regalo', grant: 'Accredito', purchase: 'Acquisto', charge: 'Uso AI', refund: 'Rimborso', settle: 'Conguaglio', adjust: 'Correzione', monthly: 'Crediti del mese', expire: 'Scaduti' };
+function creditsBox(uid) {
+  const box = el('section', { class: 'crbox' }, el('h3', null, 'Crediti'), el('div', { class: 'loading' }, 'Caricamento…'));
+  const paint = (r) => {
+    const w = r.wallet || { balance: 0, monthly: 0, plan: 'free' };
+    const plans = (r.plans || []).filter((p) => p.id !== 'free');
+    const amt = el('input', { class: 'search', type: 'number', step: '1', placeholder: 'es. 500', style: 'width:110px' });
+    const why = el('input', { class: 'search', placeholder: 'Motivo (facoltativo)', style: 'flex:1;min-width:140px' });
+    const pl = el('select', { class: 'search', style: 'width:auto' }, ...plans.map((p) => el('option', { value: p.id }, p.name + ' · ' + eur(p.price_eur))));
+    const months = el('select', { class: 'search', style: 'width:auto' }, ...[1, 2, 3, 6, 12].map((m) => el('option', { value: String(m) }, m + (m === 1 ? ' mese' : ' mesi'))));
+    const act = async (arg, msg) => { try { paint(await sql('credits', { user_id: uid, ...arg })); toast(msg); } catch (e) { toast(explain(e)); } };
+    const planName = (plans.find((p) => p.id === w.plan) || {}).name || 'Gratis';
+    rc(box, el('h3', null, 'Crediti'),
+      el('div', { class: 'facts' },
+        el('div', { class: 'fact' }, el('span', null, 'Totale'), el('b', null, num((+w.monthly || 0) + (+w.balance || 0)))),
+        el('div', { class: 'fact' }, el('span', null, 'Piano'), el('b', null, planName, w.plan !== 'free' && w.plan_until ? el('small', { class: 'muted' }, ' fino al ' + full(w.plan_until)) : null)),
+        el('div', { class: 'fact' }, el('span', null, 'Del mese'), el('b', null, num(w.monthly), w.next_grant ? el('small', { class: 'muted' }, ' · rinnovo ' + full(w.next_grant)) : null)),
+        el('div', { class: 'fact' }, el('span', null, 'Extra (non scadono)'), el('b', null, num(w.balance)))),
+      el('div', { class: 'row wrap', style: 'margin-top:10px' }, amt, why,
+        el('button', { class: 'btn sm primary', type: 'button', onclick: () => { const n = parseInt(amt.value, 10); if (!n) { toast('Scrivi quanti crediti'); return; } act({ op: 'gift', amount: n, note: why.value }, n > 0 ? 'Crediti regalati' : 'Crediti tolti'); } }, 'Regala crediti')),
+      el('div', { class: 'row wrap', style: 'margin-top:8px' }, pl, months,
+        el('button', { class: 'btn sm', type: 'button', onclick: () => act({ op: 'plan', plan: pl.value, months: +months.value }, 'Piano attivato') }, w.plan !== 'free' ? 'Cambia piano' : 'Attiva piano'),
+        w.plan !== 'free' ? el('button', { class: 'btn sm bad', type: 'button', onclick: () => act({ op: 'cancel' }, 'Piano chiuso') }, 'Chiudi piano') : null),
+      el('p', { class: 'muted', style: 'margin:6px 0 0;font-size:12px' }, 'Attivare un piano da qui è gratis per l\'utente (per prove e regali). Gli acquisti veri arrivano quando colleghiamo i pagamenti.'),
+      (r.ledger || []).length ? el('details', { class: 'box', style: 'margin-top:10px' }, el('summary', null, 'Movimenti (' + r.ledger.length + ')'),
+        ...r.ledger.map((l) => el('div', { class: 'ev' }, el('time', null, when(l.created_at)),
+          el('span', null, KIND[l.kind] || l.kind, (l.meta && (l.meta.model || l.meta.note)) ? el('small', { class: 'muted' }, ' · ' + (l.meta.model || l.meta.note)) : null),
+          el('b', { class: l.delta >= 0 ? 'pos' : 'neg' }, (l.delta > 0 ? '+' : '') + num(l.delta))))) : null);
+  };
+  sql('credits', { user_id: uid, op: 'get' }).then(paint).catch((e) => rc(box, el('h3', null, 'Crediti'), el('div', { class: 'err' }, explain(e))));
+  return box;
+}
+
+// ------------------------------------------------------------------ crediti e offerte: listino modificabile + offerte lampo
+const AUD = { all: 'Tutti', free: 'Solo utenti gratis', paid: 'Solo abbonati', new: 'Nuovi iscritti (7 giorni)' };
+const toLocal = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+function renderShop(main) {
+  S.stab = S.stab || 'offers';
+  const tabs = el('div', { class: 'seg' }, ...[['offers', 'Offerte lampo'], ['plans', 'Piani'], ['packs', 'Ricariche']].map(([k, l]) =>
+    el('button', { type: 'button', 'aria-pressed': String(S.stab === k), onclick: () => { S.stab = k; renderShop(main); } }, l)));
+  const body = el('div', { class: 'body shop-body' });
+  rc(main, head('Crediti e offerte', tabs), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  if (!S.shop) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const save = async (op, item, msg) => { try { S.shop = await sql('catalog', { op, item }); toast(msg); renderShop(main); } catch (e) { toast(explain(e)); } };
+  const st = S.shop.stats || {}, bp = st.byPlan || {};
+  const stats = el('div', { class: 'cards shop-stats' },
+    ...['free', 'starter', 'pro', 'ultimate'].map((k) => el('div', { class: 'card stat' }, el('b', null, num(bp[k] || 0)), el('span', null, k === 'free' ? 'Utenti gratis' : 'Abbonati ' + ((S.shop.plans.find((p) => p.id === k) || {}).name || k)))),
+    el('div', { class: 'card stat' }, el('b', null, num(st.spent30)), el('span', null, 'Crediti usati in 30 giorni')),
+    el('div', { class: 'card stat' }, el('b', null, num(st.gifted30)), el('span', null, 'Regalati in 30 giorni')));
+  if (S.stab === 'offers') {
+    const now = Date.now();
+    const rows = (S.shop.offers || []).map((o) => {
+      const live = o.active && new Date(o.starts_at) <= now && new Date(o.ends_at) > now;
+      const status = !o.active ? ['no', 'Fermata'] : new Date(o.ends_at) <= now ? ['no', 'Finita'] : new Date(o.starts_at) > now ? ['queued', 'Programmata'] : ['done', 'In corso'];
+      return el('tr', null,
+        el('td', null, el('b', null, o.title), el('div', { class: 'muted', style: 'font-size:12px' }, o.kind === 'pack' ? num(o.credits) + ' crediti a vita' : 'Piano ' + o.plan_id + ' per ' + o.months + (o.months === 1 ? ' mese' : ' mesi'))),
+        el('td', null, eur(o.price_eur), o.kind === 'plan' ? el('span', { class: 'muted' }, ' /mese') : null),
+        el('td', { class: 'hide-m' }, AUD[o.audience] || o.audience),
+        el('td', null, full(o.ends_at)),
+        el('td', { class: 'num hide-m' }, num(o.sold)),
+        el('td', null, el('span', { class: 'pill ' + status[0] }, status[1])),
+        el('td', { style: 'text-align:right;white-space:nowrap' },
+          el('button', { class: 'btn sm', type: 'button', onclick: () => offerForm(o) }, 'Modifica'), ' ',
+          live ? el('button', { class: 'btn sm bad', type: 'button', onclick: () => sql('catalog', { op: 'stop_offer', id: o.id }).then((r) => { S.shop = r; toast('Offerta fermata'); renderShop(main); }).catch((e) => toast(explain(e))) }, 'Ferma') : null));
+    });
+    rc(body, stats,
+      el('div', { class: 'row', style: 'justify-content:space-between;margin:18px 0 10px' }, el('p', { class: 'muted', style: 'margin:0' }, 'Le offerte compaiono subito nell\'app: banner in home e in "Crediti e piani", con il conto alla rovescia.'),
+        el('button', { class: 'btn primary', type: 'button', onclick: () => offerForm(null) }, '+ Nuova offerta')),
+      rows.length ? el('div', { class: 'tblwrap' }, el('table', { class: 'tbl' }, el('thead', null, el('tr', null, el('th', null, 'Offerta'), el('th', null, 'Prezzo'), el('th', { class: 'hide-m' }, 'Per chi'), el('th', null, 'Scade'), el('th', { class: 'hide-m', style: 'text-align:right' }, 'Vendute'), el('th', null, 'Stato'), el('th', null, ''))), el('tbody', null, ...rows)))
+        : el('div', { class: 'empty' }, 'Nessuna offerta. Creane una: crediti a vita a prezzo speciale, o un abbonamento scontato per i primi mesi.'));
+  } else if (S.stab === 'plans') {
+    const list = (S.shop.plans || []).filter((p) => p.id !== 'free');
+    rc(body, stats, el('p', { class: 'muted', style: 'margin:18px 0 10px' }, 'I prezzi cambiano subito per chi apre "Crediti e piani". Chi ha già un piano lo mantiene alle condizioni attuali fino al rinnovo.'),
+      el('div', { class: 'shop-grid' }, ...list.map((p) => planCard(p)), planCard(null)));
+  } else {
+    const list = S.shop.packs || [];
+    rc(body, stats, el('p', { class: 'muted', style: 'margin:18px 0 10px' }, 'Le ricariche danno crediti che non scadono mai.'),
+      el('div', { class: 'shop-grid' }, ...list.map((k) => packCard(k)), packCard(null)));
+  }
+
+  function field(label, input, hint) { return el('label', { class: 'fld' }, el('span', null, label), input, hint ? el('small', { class: 'muted' }, hint) : null); }
+  function planCard(p) {
+    const n = !p; p = p || { id: '', name: '', price_eur: '', monthly: '', max_pending: 6, premium: false, active: true, tagline: '', tagline_en: '', perks: [], perks_en: [], sort: 9 };
+    const f = {
+      id: el('input', { class: 'search', value: p.id, disabled: n ? null : true, placeholder: 'es. creator' }),
+      name: el('input', { class: 'search', value: p.name }), price: el('input', { class: 'search', type: 'number', step: '0.01', value: p.price_eur }),
+      monthly: el('input', { class: 'search', type: 'number', step: '1', value: p.monthly }), maxPending: el('input', { class: 'search', type: 'number', step: '1', value: p.max_pending }),
+      tagline: el('input', { class: 'search', value: p.tagline || '' }), taglineEn: el('input', { class: 'search', value: p.tagline_en || '' }),
+      perks: el('textarea', { class: 'note', rows: '3' }), perksEn: el('textarea', { class: 'note', rows: '3' }),
+      premium: el('input', { type: 'checkbox', checked: p.premium ? true : null }), active: el('input', { type: 'checkbox', checked: p.active ? true : null }),
+      sort: el('input', { class: 'search', type: 'number', step: '1', value: p.sort }),
+    };
+    f.perks.value = (p.perks || []).join('\n'); f.perksEn.value = (p.perks_en || []).join('\n');
+    const lines = (t) => t.value.split('\n').map((x) => x.trim()).filter(Boolean);
+    return el('div', { class: 'card shop-card' + (p.active ? '' : ' off') }, el('h2', null, n ? 'Nuovo piano' : p.name),
+      el('div', { class: 'fgrid' }, n ? field('Codice (non si cambia)', f.id) : null, field('Nome', f.name), field('Prezzo al mese (€)', f.price), field('Crediti al mese', f.monthly),
+        field('Generazioni insieme', f.maxPending), field('Ordine', f.sort)),
+      field('Frase sotto il nome', f.tagline), field('In inglese', f.taglineEn),
+      field('Vantaggi (uno per riga)', f.perks), field('Vantaggi in inglese', f.perksEn),
+      el('div', { class: 'row', style: 'gap:16px' }, el('label', { class: 'chk' }, f.premium, ' Modelli premium'), el('label', { class: 'chk' }, f.active, ' In vendita')),
+      el('button', { class: 'btn primary sm', type: 'button', onclick: () => save('save_plan', { id: n ? f.id.value.trim().toLowerCase() : p.id, name: f.name.value.trim(), price: f.price.value, monthly: f.monthly.value,
+        maxPending: f.maxPending.value, sort: f.sort.value, premium: f.premium.checked, active: f.active.checked, tagline: f.tagline.value.trim(), taglineEn: f.taglineEn.value.trim(), perks: lines(f.perks), perksEn: lines(f.perksEn) }, 'Piano salvato') }, n ? 'Crea piano' : 'Salva'));
+  }
+  function packCard(k) {
+    const n = !k; k = k || { id: '', name: '', price_eur: '', credits: '', active: true, tagline: '', tagline_en: '', sort: 9 };
+    const f = { id: el('input', { class: 'search', value: k.id, disabled: n ? null : true, placeholder: 'es. xl' }), name: el('input', { class: 'search', value: k.name }),
+      price: el('input', { class: 'search', type: 'number', step: '0.01', value: k.price_eur }), credits: el('input', { class: 'search', type: 'number', step: '1', value: k.credits }),
+      sort: el('input', { class: 'search', type: 'number', step: '1', value: k.sort }), active: el('input', { type: 'checkbox', checked: k.active ? true : null }) };
+    return el('div', { class: 'card shop-card' + (k.active ? '' : ' off') }, el('h2', null, n ? 'Nuova ricarica' : k.name),
+      el('div', { class: 'fgrid' }, n ? field('Codice', f.id) : null, field('Nome', f.name), field('Prezzo (€)', f.price), field('Crediti', f.credits), field('Ordine', f.sort)),
+      el('label', { class: 'chk' }, f.active, ' In vendita'),
+      el('button', { class: 'btn primary sm', type: 'button', onclick: () => save('save_pack', { id: n ? f.id.value.trim().toLowerCase() : k.id, name: f.name.value.trim(), price: f.price.value, credits: f.credits.value, sort: f.sort.value, active: f.active.checked }, 'Ricarica salvata') }, n ? 'Crea ricarica' : 'Salva'));
+  }
+  function offerForm(o) {
+    const n = !o; o = o || { kind: 'pack', title: '', subtitle: '', title_en: '', subtitle_en: '', badge: '', credits: '', price_eur: '', plan_id: 'pro', months: 3, audience: 'all', per_user: 1, starts_at: new Date().toISOString(), ends_at: new Date(Date.now() + 48 * 3600e3).toISOString(), active: true };
+    const plans = (S.shop.plans || []).filter((p) => p.id !== 'free');
+    const f = {
+      kind: el('select', { class: 'search' }, el('option', { value: 'pack' }, 'Crediti a vita (non scadono)'), el('option', { value: 'plan' }, 'Abbonamento scontato per X mesi')),
+      title: el('input', { class: 'search', value: o.title, maxlength: '80', placeholder: 'es. 2.000 crediti a vita' }), subtitle: el('input', { class: 'search', value: o.subtitle || '', maxlength: '160', placeholder: 'es. Solo per 48 ore' }),
+      titleEn: el('input', { class: 'search', value: o.title_en || '', maxlength: '80' }), subtitleEn: el('input', { class: 'search', value: o.subtitle_en || '', maxlength: '160' }),
+      badge: el('input', { class: 'search', value: o.badge || '', maxlength: '24', placeholder: 'es. -40%' }),
+      credits: el('input', { class: 'search', type: 'number', step: '1', value: o.credits || '' }), price: el('input', { class: 'search', type: 'number', step: '0.01', value: o.price_eur }),
+      plan: el('select', { class: 'search' }, ...plans.map((p) => el('option', { value: p.id }, p.name + ' (di solito ' + eur(p.price_eur) + ')')) ),
+      months: el('input', { class: 'search', type: 'number', min: '1', max: '24', step: '1', value: o.months || 3 }),
+      audience: el('select', { class: 'search' }, ...Object.entries(AUD).map(([k, l]) => el('option', { value: k }, l))),
+      perUser: el('input', { class: 'search', type: 'number', min: '1', step: '1', value: o.per_user || 1 }),
+      starts: el('input', { class: 'search', type: 'datetime-local', value: toLocal(o.starts_at) }), ends: el('input', { class: 'search', type: 'datetime-local', value: toLocal(o.ends_at) }),
+    };
+    f.kind.value = o.kind; f.plan.value = o.plan_id || 'pro'; f.audience.value = o.audience;
+    const packRow = el('div', { class: 'fgrid' }, field('Crediti', f.credits), field('Prezzo (€)', f.price));
+    f.pprice = el('input', { class: 'search', type: 'number', step: '0.01', value: o.price_eur });
+    const planRow = el('div', { class: 'fgrid' }, field('Piano', f.plan), field('Prezzo scontato al mese (€)', f.pprice), field('Per quanti mesi', f.months));
+    const swap = () => { const pk = f.kind.value === 'pack'; packRow.style.display = pk ? '' : 'none'; planRow.style.display = pk ? 'none' : ''; };
+    f.kind.addEventListener('change', swap);
+    const bg = el('div', { class: 'modal-bg' });
+    const close = () => bg.remove();
+    const priceOf = () => (f.kind.value === 'pack' ? f.price : f.pprice).value;
+    rc(bg, el('div', { class: 'modal shop-modal', role: 'dialog' }, el('h2', null, n ? 'Nuova offerta lampo' : 'Modifica offerta'),
+      field('Tipo', f.kind), packRow, planRow,
+      el('div', { class: 'fgrid' }, field('Titolo', f.title), field('Etichetta', f.badge, 'Appare in un angolo, es. -40%')),
+      field('Sottotitolo', f.subtitle),
+      el('details', null, el('summary', null, 'Testi in inglese (facoltativi)'), field('Titolo in inglese', f.titleEn), field('Sottotitolo in inglese', f.subtitleEn)),
+      el('div', { class: 'fgrid' }, field('Inizia', f.starts), field('Finisce', f.ends)),
+      el('div', { class: 'fgrid' }, field('Per chi', f.audience), field('Quante volte per utente', f.perUser)),
+      el('div', { class: 'row', style: 'justify-content:flex-end;gap:8px' }, el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'),
+        el('button', { class: 'btn primary', type: 'button', onclick: async () => {
+          const item = { id: n ? undefined : o.id, kind: f.kind.value, title: f.title.value.trim(), subtitle: f.subtitle.value.trim(), titleEn: f.titleEn.value.trim(), subtitleEn: f.subtitleEn.value.trim(),
+            badge: f.badge.value.trim(), price: priceOf(), credits: f.kind.value === 'pack' ? f.credits.value : null, plan: f.kind.value === 'plan' ? f.plan.value : '',
+            months: f.kind.value === 'plan' ? f.months.value : null, audience: f.audience.value, perUser: f.perUser.value,
+            startsAt: new Date(f.starts.value).toISOString(), endsAt: new Date(f.ends.value).toISOString(), active: true };
+          if (!item.title) { toast('Scrivi un titolo'); return; }
+          if (!(+item.price >= 0) || item.price === '') { toast('Scrivi il prezzo'); return; }
+          if (item.kind === 'pack' && !(+item.credits > 0)) { toast('Scrivi quanti crediti'); return; }
+          await save('save_offer', item, n ? 'Offerta creata' : 'Offerta salvata'); close();
+        } }, n ? 'Pubblica offerta' : 'Salva'))));
+    bg.addEventListener('click', (e) => { if (e.target === bg) close(); });
+    document.body.append(bg); swap(); f.title.focus();
+  }
+}
+
 async function openUser(id) {
   document.querySelectorAll('.drawer, .drawer-bg').forEach((x) => x.remove());
   const bg = el('div', { class: 'drawer-bg', onclick: () => close() });
@@ -246,6 +412,7 @@ async function openUser(id) {
       el('section', null, el('h3', null, 'Segnalazioni (' + (d.reports || []).length + ')'),
         ...(d.reports || []).map((r) => el('div', { class: 'dev' }, el('button', { class: 'linkish', type: 'button', style: 'text-align:left;font-weight:500', onclick: () => { close(); S.rsel = r.id; S.rtab = 'all'; go('reports'); } }, r.text || '(senza testo)'), statusPill(r.status))),
         (d.reports || []).length ? null : el('p', { class: 'muted' }, 'Nessuna')),
+      creditsBox(id),
       el('section', null, el('h3', null, 'Note'), note, el('div', { class: 'row', style: 'margin-top:8px' }, el('button', { class: 'btn sm', type: 'button', onclick: () => save({ note: note.value }, 'Nota salvata') }, 'Salva nota'))),
       el('section', { class: 'blockbox' }, el('h3', { style: 'margin:0' }, a.blocked ? 'Account bloccato' : 'Blocca l\'account'),
         el('p', { class: 'muted', style: 'margin:0' }, a.blocked ? 'Dal ' + full(a.blocked_at) + '. Sbloccandolo può tornare a usare NoonFrame al prossimo controllo.' : 'Al prossimo controllo (entro 30 minuti, o subito all\'apertura) l\'app mostra "Account sospeso" e non si può usare.'),
@@ -368,7 +535,7 @@ document.addEventListener('keydown', (e) => {
 // ------------------------------------------------------------------ avvio
 let startView = 'overview';
 try { startView = localStorage.getItem('nuvora.admin.view') || 'overview'; } catch (e) { /* */ }
-go(['overview', 'users', 'reports', 'beta'].includes(startView) ? startView : 'overview');
+go(['overview', 'users', 'reports', 'beta', 'shop'].includes(startView) ? startView : 'overview');
 // ------------------------------------------------------------------ accesso: Google + codice dell'app di autenticazione (2 passaggi)
 let poll = null;
 function screen(...kids) {
