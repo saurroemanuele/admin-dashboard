@@ -74,12 +74,13 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { overview: '', launch: 'launch', tasks: 'tasks', reports: 'reports', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { overview: '', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
   document.querySelectorAll('.nav-i[data-perm]').forEach((b) => { b.hidden = !CAN(b.dataset.perm); });
   const me = $('#me'); if (me && ME) rc(me, el('b', null, ME.name || ME.email), el('small', null, ROLE_NAME[ME.role] || ME.role));
+  const sb2 = $('#sbadge'); if (sb2 && ME) { sb2.hidden = !ME.issues; sb2.textContent = ME.issues || ''; sb2.title = 'Servizi che non funzionano'; }
   const tb = $('#tbadge'); if (tb && ME) { tb.hidden = !ME.my_tasks; tb.textContent = ME.my_tasks || ''; tb.title = 'Task assegnate a te'; }
 }
 function go(view) {
@@ -102,6 +103,9 @@ async function load(view, force) {
     if (view === 'beta' && (force || !S.beta)) S.beta = await sql('beta_list');
     if (view === 'shop' && (force || !S.shop)) S.shop = await sql('catalog', { op: 'list' });
     if (view === 'launch' && (force || !S.launch)) S.launch = await sql('launch');
+    if (view === 'status' && (force || !S.status)) S.status = await sql('status');
+    if (view === 'messages' && (force || !S.messages)) S.messages = await sql('messages');
+    if (view === 'money' && (force || !S.money)) S.money = await sql('money', { days: S.mdays || 30 });
     if (view === 'tasks' && (force || !S.tasks)) S.tasks = await sql('tasks');
     if (view === 'team' && (force || !S.team)) { [S.team, S.audit] = await Promise.all([sql('team'), sql('audit', { limit: 120 })]); }
     if (force) { ME = { ...ME, ...(await sql('me')) }; paintMe(); }
@@ -123,6 +127,9 @@ function render() {
   if (S.view === 'launch') renderLaunch(main);
   if (S.view === 'tasks') renderTasks(main);
   if (S.view === 'team') renderTeam(main);
+  if (S.view === 'status') renderStatus(main);
+  if (S.view === 'messages') renderMessages(main);
+  if (S.view === 'money') renderMoney(main);
 }
 const SUB = {
   Panoramica: 'Come va l\'app oggi: iscritti, utenti attivi e funzioni più usate.',
@@ -133,6 +140,9 @@ const SUB = {
   Lancio: 'I numeri del lancio confrontati con gli obiettivi. Non contano le persone del team.',
   Task: 'Le cose da fare del team. Trascina una card per cambiarne lo stato.',
   'Team e permessi': 'Chi può entrare in questo pannello e cosa può fare.',
+  Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
+  Messaggi: 'Avvisi e novità che arrivano nella campanella dell\'app.',
+  Soldi: 'Quanto costano davvero le AI e quanti crediti sono ancora in giro.',
 };
 const head = (title, ...right) => el('div', { class: 'head' }, el('div', { class: 'ttl' }, el('h1', null, title), SUB[title] ? el('p', null, SUB[title]) : null), ...right);
 
@@ -157,7 +167,7 @@ function overview(o) {
 function barList(rows) {
   if (!rows.length) return el('p', { class: 'muted', style: 'margin:0' }, 'Nessun dato');
   const max = Math.max(...rows.map((r) => r[1]), 1);
-  return el('div', { class: 'bars' }, ...rows.map(([label, n, extra]) => el('div', { class: 'bar-r', title: extra || '' }, el('span', null, label), el('span', { class: 'track' }, el('i', { style: 'width:' + Math.max(2, n / max * 100) + '%' })), el('b', null, n))));
+  return el('div', { class: 'bars' }, ...rows.map(([label, n, extra]) => el('div', { class: 'bar-r', title: extra || '' }, el('span', null, label), el('span', { class: 'track' }, el('i', { style: 'width:' + Math.max(2, n / max * 100) + '%' })), el('b', null, num(n)))));
 }
 function chart(days) {
   const W = 600, H = 200, P = { l: 28, r: 8, t: 10, b: 22 };
@@ -567,6 +577,7 @@ function renderReports(main) {
           r.contact ? el('span', null, el('b', null, 'Contatto'), r.contact) : null, r.email ? el('span', null, el('b', null, 'Email'), r.email) : null),
         imgs.length ? el('div', { class: 'shots' }, ...imgs.map((u) => el('button', { type: 'button', onclick: () => lightbox(u) }, el('img', { src: u, alt: 'Screenshot', loading: 'lazy' })))) : null,
         r.question && !['fatta', 'chiusa'].includes(st) ? el('div', { class: 'box ask' }, el('h3', null, 'Claude ti chiede'), el('p', null, r.question)) : null,
+        CAN('reports_decide') ? replyBox(r) : null,
         r.done_note ? el('div', { class: 'box done' }, el('h3', null, r.done_version ? 'Fatto nella ' + r.done_version : 'Cosa è stato fatto'), el('p', null, r.done_note)) : null,
         (r.errors || []).length ? el('details', { class: 'box' }, el('summary', null, 'Errori (' + r.errors.length + ')'), el('pre', null, r.errors.join('\n\n'))) : null,
         r.log ? el('details', { class: 'box' }, el('summary', null, 'Log'), el('pre', null, r.log.split('\n').filter((l) => !/^\[(http|media)\]/.test(l)).slice(-80).join('\n'))) : null),
@@ -889,14 +900,16 @@ const PERMS = [
   ['users', 'Vedere gli utenti', 'Email, dispositivi e uso dell\'app: sono dati personali'],
   ['users_edit', 'Gestire gli utenti', 'Bloccare account, scrivere note, regalare crediti e piani', 'users'],
   ['shop', 'Prezzi e offerte', 'Piani, ricariche e offerte lampo che vedono gli utenti'],
+  ['money', 'Soldi', 'Costi delle AI, crediti in giro e (quando ci saranno) incassi'],
+  ['messages', 'Messaggi agli utenti', 'Pubblicare avvisi e novità nella home dell\'app'],
   ['beta', 'Beta tester', 'Chi può provare le versioni nuove'],
   ['team', 'Team e permessi', 'Aggiungere persone e vedere il registro delle azioni'],
 ];
 const ROLES = [
   ['admin', 'Admin', 'Tutto', PERMS.map((p) => p[0])],
-  ['supporto', 'Supporto', 'Utenti e segnalazioni', ['launch', 'tasks', 'reports', 'reports_decide', 'users', 'users_edit']],
+  ['supporto', 'Supporto', 'Utenti e segnalazioni', ['launch', 'tasks', 'reports', 'reports_decide', 'users', 'users_edit', 'messages']],
   ['sviluppo', 'Sviluppo', 'Segnalazioni e beta', ['launch', 'tasks', 'reports', 'reports_decide', 'beta']],
-  ['marketing', 'Marketing', 'Numeri, prezzi e offerte', ['launch', 'tasks', 'shop']],
+  ['marketing', 'Marketing', 'Numeri, prezzi, offerte e messaggi', ['launch', 'tasks', 'shop', 'messages']],
   ['lettura', 'Solo lettura', 'Numeri e task', ['launch', 'tasks']],
 ];
 const permName = (k) => (PERMS.find((p) => p[0] === k) || [k, k])[1];
@@ -941,6 +954,8 @@ function auditText(a) {
     case 'team_remove': return 'ha tolto ' + (d.email || 'una persona') + ' dal team';
     case 'launch_save': return 'ha cambiato gli obiettivi del lancio';
     case 'task_archive': return 'ha eliminato una task';
+    case 'message_save': return d.active === false ? 'ha fermato un messaggio agli utenti' : 'ha pubblicato un messaggio agli utenti' + (d.title ? ': "' + d.title + '"' : '');
+    case 'report_reply': return 'ha risposto a chi ha fatto una segnalazione' + (d.email === true ? ' (anche via email)' : '');
     case 'credits': return d.op === 'gift' ? (d.amount < 0 ? 'ha tolto ' + num(-d.amount) + ' crediti a un utente' : 'ha regalato ' + num(d.amount) + ' crediti a un utente') : d.op === 'plan' ? 'ha attivato il piano ' + (d.plan || '') + ' a un utente' : d.op === 'cancel' ? 'ha chiuso il piano di un utente' : 'ha cambiato i crediti di un utente';
     case 'catalog': return d.op === 'stop_offer' ? 'ha fermato un\'offerta' : d.op === 'save_offer' ? 'ha salvato un\'offerta' : d.op === 'save_plan' ? 'ha modificato un piano' : d.op === 'save_pack' ? 'ha modificato una ricarica' : 'ha modificato il listino';
     default: return a.fn;
@@ -1008,6 +1023,184 @@ function memberModal(m, main) {
   if (isNew) setTimeout(() => email.focus(), 30);
 }
 
+// ------------------------------------------------------------------ stato dei servizi: verde se va, rosso se qualcosa è rotto
+const CHECKS = [
+  ['site', 'Sito noonframe.com', 'La pagina da cui la gente scarica l\'app'],
+  ['fn_dl', 'Link via email', 'Chi visita dal telefono riceve il link per il PC'],
+  ['upd_stable', 'Aggiornamenti', 'L\'app trova le versioni nuove'],
+  ['upd_beta', 'Aggiornamenti beta', 'Le versioni di prova per i beta tester'],
+  ['fn_ai', 'Servizio AI', 'Video, immagini e voci generati con i crediti'],
+  ['fn_outbox', 'Invio email del team', 'Le risposte a chi segnala'],
+  ['admin', 'Pannello admin', 'Questa pagina'],
+];
+const CRON_NAME = { 'credits-renew': 'Rinnovo crediti mensili', 'dl-fetch': 'Conteggio download', 'dl-collect': 'Conteggio download (lettura)', 'health-fetch': 'Controlli dei servizi', 'health-collect': 'Controlli dei servizi (lettura)', 'outbox-retry': 'Nuovi tentativi email', 'download-requests-retention': 'Pulizia richieste link (privacy)' };
+function renderStatus(main) {
+  const st = S.status;
+  const body = el('div', { class: 'body' });
+  rc(main, head('Stato'), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  if (!st) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const rows = [];
+  const row = (ok, label, desc, detail, at) => rows.push({ ok, el: el('div', { class: 'srow ' + (ok === true ? 'ok' : ok === false ? 'bad' : ok === 'warn' ? 'warn' : 'wait') },
+    el('span', { class: 'sdot' }), el('div', { class: 'stxt' }, el('b', null, label), el('small', null, desc)),
+    el('div', { class: 'sdet' }, el('span', null, detail || (ok === true ? 'Funziona' : ok === false ? 'Non funziona' : ok === 'warn' ? 'Da controllare' : 'In attesa del primo controllo')), at ? el('small', null, when(at)) : null)) });
+  for (const [k, label, desc] of CHECKS) {
+    const c = (st.checks || {})[k];
+    row(c ? c.ok : null, label, desc, c ? (c.ok ? (c.detail || 'Funziona') : (c.detail || 'Non risponde') + (c.since ? ' da ' + when(c.since).replace(' fa', '') : '')) : null, c && c.at);
+  }
+  const ai = st.ai || {};
+  row(ai.stuck ? false : (ai.jobs && ai.failed / ai.jobs > 0.3) ? 'warn' : true, 'Generazioni AI', 'Lavori AI delle ultime 24 ore',
+    ai.jobs ? ai.jobs + ' lavori, ' + ai.failed + ' falliti e rimborsati' + (ai.stuck ? ' · ' + ai.stuck + ' bloccati' : '') : 'Nessun lavoro nelle ultime 24 ore', ai.last);
+  const em = st.email || {};
+  row(em.failed || em.pending ? 'warn' : true, 'Email', 'Link di download e risposte del team (24 ore)',
+    (em.sent || 0) + ' inviate' + (em.failed ? ' · ' + em.failed + ' non partite' : '') + (em.pending ? ' · ' + em.pending + ' in coda da più di 15 minuti' : ''));
+  const dlAge = st.dl_at ? (Date.now() - new Date(st.dl_at)) / 36e5 : 99;
+  row(dlAge < 3 ? true : 'warn', 'Contatore download', 'I numeri della sezione Lancio', st.dl_at ? 'Aggiornato ' + when(st.dl_at) : 'Mai aggiornato');
+  const cronRows = Object.entries(st.cron || {}).map(([k, c]) => el('div', { class: 'srow sm ' + (c.ok === false ? 'bad' : c.ok ? 'ok' : 'wait') }, el('span', { class: 'sdot' }),
+    el('div', { class: 'stxt' }, el('b', null, CRON_NAME[k] || k)), el('div', { class: 'sdet' }, el('span', null, c.ok === false ? 'Ultimo giro fallito' + (c.msg ? ': ' + c.msg : '') : c.ok ? 'Ok' : 'Non ancora partito'), c.at ? el('small', null, when(c.at)) : null)));
+  const bad = rows.filter((r) => r.ok === false).length, warn = rows.filter((r) => r.ok === 'warn').length + Object.values(st.cron || {}).filter((c) => c.ok === false).length;
+  rc(body, el('div', { class: 'ov' },
+    el('div', { class: 'shero ' + (bad ? 'bad' : warn ? 'warn' : 'ok') }, el('span', { class: 'sdot big' }),
+      el('div', null, el('b', null, bad ? (bad === 1 ? 'Un servizio non funziona' : bad + ' servizi non funzionano') : warn ? 'Funziona tutto, ma c\'è qualcosa da controllare' : 'Funziona tutto'),
+        el('small', null, 'Controlli automatici ogni 15 minuti. ' + (st.active_1h ? st.active_1h + (st.active_1h === 1 ? ' persona sta' : ' persone stanno') + ' usando l\'app ora.' : '')))),
+    el('section', { class: 'card' }, el('h2', null, 'Servizi'), el('div', { class: 'slist' }, ...rows.map((r) => r.el))),
+    el('section', { class: 'card' }, el('h2', null, 'Lavori automatici del server'), el('div', { class: 'slist' }, ...cronRows)),
+    st.bugs_24h ? el('p', { class: 'muted fine' }, st.bugs_24h + (st.bugs_24h === 1 ? ' bug segnalato' : ' bug segnalati') + ' nelle ultime 24 ore.') : null));
+}
+
+// ------------------------------------------------------------------ messaggi agli utenti: compaiono in cima alla home dell'app
+const AUD_MSG = [['all', 'Tutti'], ['free', 'Solo utenti gratis'], ['paid', 'Solo abbonati'], ['beta', 'Solo beta tester']];
+const KIND_MSG = [['info', 'Informazione'], ['update', 'Novità'], ['warning', 'Avviso']];
+function renderMessages(main) {
+  const body = el('div', { class: 'body shop-body' });
+  rc(main, head('Messaggi', el('button', { class: 'btn primary', type: 'button', onclick: () => messageModal(null, main) }, '＋ Nuovo messaggio')), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  if (!S.messages) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  if (!S.messages.length) { rc(body, el('div', { class: 'empty' }, 'Nessun messaggio. Scrivine uno: arriva nella campanella dell\'app di tutti.')); return; }
+  rc(body, el('div', { class: 'members' }, ...S.messages.map((m) => {
+    const state = !m.active ? ['no', 'Fermato'] : m.live ? ['done', 'Visibile ora'] : new Date(m.starts_at) > new Date() ? ['new', 'Parte ' + full(m.starts_at)] : ['no', 'Scaduto'];
+    return el('button', { class: 'member msg', type: 'button', onclick: () => messageModal(m, main) },
+      el('span', { class: 'mk ' + m.kind }),
+      el('span', { class: 'mb-who' }, el('b', null, m.title), el('small', null, m.body || '—')),
+      el('span', { class: 'mb-role' }, el('b', null, (AUD_MSG.find((a) => a[0] === m.audience) || [0, m.audience])[1]), el('small', null, (KIND_MSG.find((a) => a[0] === m.kind) || [0, m.kind])[1] + (m.ends_at ? ' · fino al ' + full(m.ends_at) : ''))),
+      el('span', { class: 'mb-st' }, el('span', { class: 'pill ' + state[0] }, state[1]), el('small', { class: 'muted' }, num(m.seen) + ' l\'hanno visto · ' + num(m.closed) + ' chiuso')),
+      el('span', { class: 'mb-t muted' }, when(m.created_at)));
+  })));
+}
+function messageModal(m, main) {
+  const isNew = !m;
+  m = m || { kind: 'info', title: '', body: '', title_en: '', body_en: '', cta_label: '', cta_label_en: '', cta_url: '', audience: 'all', starts_at: new Date().toISOString(), ends_at: '', active: true };
+  const inp = (v, attrs) => el('input', { class: 'search', value: v || '', ...attrs });
+  const title = inp(m.title, { maxlength: '120', placeholder: 'es. Novità: sottotitoli più veloci' });
+  const bodyT = el('textarea', { class: 'note', maxlength: '2000', placeholder: 'Due o tre righe al massimo: cosa cambia per chi usa l\'app.' }); bodyT.value = m.body || '';
+  const titleEn = inp(m.title_en, { maxlength: '120', placeholder: 'English title (optional)' });
+  const bodyEn = el('textarea', { class: 'note', maxlength: '2000', placeholder: 'English text (optional). Without it, English users see the Italian one.' }); bodyEn.value = m.body_en || '';
+  const cta = inp(m.cta_label, { maxlength: '40', placeholder: 'es. Scopri di più' });
+  const ctaEn = inp(m.cta_label_en, { maxlength: '40', placeholder: 'Learn more' });
+  const url = inp(m.cta_url, { type: 'url', placeholder: 'https://noonframe.com/…' });
+  const aud = el('select', { class: 'search' }, ...AUD_MSG.map(([v, l]) => el('option', { value: v, selected: m.audience === v }, l)));
+  const kind = el('select', { class: 'search' }, ...KIND_MSG.map(([v, l]) => el('option', { value: v, selected: m.kind === v }, l)));
+  const from = inp(toLocal(m.starts_at), { type: 'datetime-local' });
+  const to = inp(m.ends_at ? toLocal(m.ends_at) : '', { type: 'datetime-local' });
+  const prev = el('div', { class: 'tm-prev' });
+  const KI = { info: 'Dal team', update: 'Novità', warning: 'Avviso' };
+  const paint = () => rc(prev, el('div', { class: 'tm-p ' + kind.value }, el('span', { class: 'tm-p-ic' }, kind.value === 'update' ? '✦' : kind.value === 'warning' ? '!' : 'i'),
+    el('div', null, el('div', { class: 'tm-p-top' }, el('small', null, KI[kind.value] + ' · adesso')), el('b', null, title.value || 'Titolo del messaggio'),
+      el('p', null, bodyT.value || 'Il testo del messaggio.'), url.value ? el('span', { class: 'tm-p-btn' }, (cta.value || 'Apri') + ' ›') : null), el('span', { class: 'tm-p-x' }, '✕')));
+  [title, bodyT, cta, url, kind].forEach((x) => x.addEventListener('input', paint)); paint();
+  const close = () => { bg.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  const save = async (e, extra) => {
+    if (!title.value.trim()) { title.focus(); toast('Scrivi un titolo'); return; }
+    if (url.value.trim() && !/^https:\/\//.test(url.value.trim())) { url.focus(); toast('Il link deve iniziare con https://'); return; }
+    e.currentTarget.disabled = true;
+    try {
+      S.messages = await sql('message_save', { id: isNew ? null : m.id, kind: kind.value, title: title.value, body: bodyT.value, title_en: titleEn.value, body_en: bodyEn.value,
+        cta_label: cta.value, cta_label_en: ctaEn.value, cta_url: url.value.trim(), audience: aud.value,
+        starts_at: from.value ? new Date(from.value).toISOString() : null, ends_at: to.value ? new Date(to.value).toISOString() : null, active: true, ...(extra || {}) });
+      close(); renderMessages(main); toast(extra && extra.active === false ? 'Messaggio fermato' : isNew ? 'Pubblicato: gli utenti lo vedono alla prossima apertura della home' : 'Salvato');
+    } catch (x) { e.currentTarget.disabled = false; toast(explain(x)); }
+  };
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal tk-modal', role: 'dialog', 'aria-label': 'Messaggio' },
+    el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuovo messaggio' : 'Messaggio'), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
+    el('div', { class: 'fld' }, el('span', null, 'Come lo vedono nell\'app'), prev),
+    el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Tipo'), kind), el('label', { class: 'fld' }, el('span', null, 'Chi lo vede'), aud)),
+    el('label', { class: 'fld' }, el('span', null, 'Titolo'), title), el('label', { class: 'fld' }, el('span', null, 'Testo'), bodyT),
+    el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Pulsante (facoltativo)'), cta), el('label', { class: 'fld' }, el('span', null, 'Link del pulsante'), url)),
+    el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Da quando'), from), el('label', { class: 'fld' }, el('span', null, 'Fino a quando (vuoto = finché lo fermi)'), to)),
+    el('details', null, el('summary', null, 'Versione inglese'), el('div', { class: 'fld' }, titleEn, bodyEn, ctaEn)),
+    el('p', { class: 'muted', style: 'margin:0;font-size:12.5px' }, 'Arriva nella campanella in alto nell\'app (con il numerino) e, la prima volta, compare un attimo sotto la campanella. Ognuno lo può togliere e non lo rivede più.'),
+    el('div', { class: 'row' }, !isNew && m.active ? el('button', { class: 'btn bad', type: 'button', onclick: (e) => save(e, { active: false }) }, 'Ferma') : null,
+      el('span', { class: 'grow' }), el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'),
+      el('button', { class: 'btn primary', type: 'button', onclick: (e) => save(e) }, isNew ? 'Pubblica' : 'Salva'))));
+  document.body.append(bg);
+  if (isNew) setTimeout(() => title.focus(), 30);
+}
+
+// ------------------------------------------------------------------ risposta a chi ha segnalato (nel dettaglio della segnalazione)
+function replyBox(r) {
+  const box = el('div', { class: 'box reply' }, el('h3', null, 'Rispondi a ' + (r.who || 'chi ha segnalato')), el('p', { class: 'muted', style: 'margin:0' }, 'Caricamento…'));
+  if (!r.user_id) { rc(box, el('h3', null, 'Risposta'), el('p', { class: 'muted', style: 'margin:0' }, 'Questa segnalazione è arrivata senza account: non c\'è nessuno a cui rispondere.')); return box; }
+  const paint = (d) => {
+    const ta = el('textarea', { class: 'note', maxlength: '2000', placeholder: r.status === 'fatta' ? 'es. Risolto nella ' + (r.done_version || 'ultima versione') + ': aggiorna l\'app e fammi sapere.' : 'Scrivi la risposta: la vede nell\'app' });
+    const mail = el('input', { type: 'checkbox', checked: d.can_email, disabled: !d.can_email });
+    const tpl = r.status === 'fatta' ? el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { ta.value = 'Ciao! Abbiamo sistemato quello che ci hai segnalato' + (r.done_version ? ' nella versione ' + r.done_version : '') + '. Aggiorna NoonFrame e dimmi se adesso va. Grazie per avercelo detto!'; ta.focus(); } }, 'Usa il testo "risolto"') : null;
+    rc(box, el('h3', null, 'Rispondi a ' + (r.who || 'chi ha segnalato')),
+      ...(d.replies || []).map((x) => el('div', { class: 'cm' }, el('span', { class: 'tk-av' }, (x.name || x.by)[0].toUpperCase()),
+        el('div', null, el('div', { class: 'cm-h' }, el('b', null, x.name || x.by.split('@')[0]), el('time', null, when(x.at)),
+          el('span', { class: 'muted', style: 'font-size:11.5px' }, [x.seen ? 'letta nell\'app' : 'non ancora letta', x.email === 'sent' ? 'email inviata' : x.email === 'pending' ? 'email in invio' : x.email === 'failed' ? 'email non partita' : null].filter(Boolean).join(' · '))),
+          el('p', null, x.text)))),
+      ta,
+      el('div', { class: 'row' }, el('label', { class: 'chk' }, mail, d.can_email ? 'Manda anche per email' : 'Niente email: l\'account non ne ha una'), tpl, el('span', { class: 'grow' }),
+        el('button', { class: 'btn primary sm', type: 'button', onclick: async (e) => {
+          const tx = ta.value.trim(); if (tx.length < 2) { ta.focus(); toast('Scrivi la risposta'); return; }
+          e.currentTarget.disabled = true;
+          try { paint(await sql('report_reply', { id: r.id, text: tx, email: mail.checked })); toast(mail.checked ? 'Risposta inviata: la vede nell\'app e per email' : 'Risposta inviata: la vede nell\'app'); }
+          catch (x) { e.currentTarget.disabled = false; toast(explain(x)); }
+        } }, 'Invia risposta')));
+  };
+  sql('report_replies', { id: r.id }).then(paint).catch((e) => rc(box, el('h3', null, 'Risposta'), el('p', { class: 'gate-err' }, explain(e))));
+  return box;
+}
+
+// ------------------------------------------------------------------ soldi: costo vero delle API e crediti in giro (gli incassi arrivano con i pagamenti)
+function renderMoney(main) {
+  S.mdays = S.mdays || 30;
+  const seg = el('div', { class: 'seg' }, ...[[7, '7 giorni'], [30, '30 giorni'], [90, '90 giorni']].map(([d, l]) =>
+    el('button', { type: 'button', 'aria-pressed': String(S.mdays === d), onclick: async () => { S.mdays = d; S.money = null; renderMoney(main); try { S.money = await sql('money', { days: d }); } catch (e) { S.err = explain(e); } renderMoney(main); } }, l)));
+  const body = el('div', { class: 'body' });
+  rc(main, head('Soldi', seg), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  const M = S.money; if (!M) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const usd = (cr) => cr / (M.per_usd || 280), toEur = (cr) => usd(cr) * ECO.fx;
+  const openCr = (M.open.extra || 0) + (M.open.monthly || 0);
+  const subs = (M.plans || []).reduce((a, p) => a + p.n * p.price, 0);
+  const kpi = (v, label, sub, cls) => el('div', { class: 'kpi' + (cls ? ' ' + cls : '') }, el('b', null, v), el('span', null, label), sub ? el('small', null, sub) : null);
+  const maxS = Math.max(1, ...M.series.map((d) => d.cr));
+  rc(body, el('div', { class: 'ov' },
+    el('div', { class: 'kpis' },
+      kpi(eur(toEur(M.used)), 'Costo API', num(M.used) + ' crediti usati da ' + num(M.users) + (M.users === 1 ? ' persona' : ' persone')),
+      kpi(eur(0), 'Incassi', 'Arrivano quando colleghiamo i pagamenti', 'dim'),
+      kpi(eur(subs), 'Abbonamenti attivi', (M.plans || []).reduce((a, p) => a + p.n, 0) + ' attivati a mano (non pagati)'),
+      kpi(eur(toEur(openCr)), 'Crediti ancora da usare', num(openCr) + ' crediti: costo massimo se li usano tutti', openCr / (M.per_usd || 280) * ECO.fx > 50 ? 'hot' : '')),
+    el('div', { class: 'cards' },
+      el('div', { class: 'card' }, el('h2', null, 'Costo API giorno per giorno'),
+        M.used ? el('div', { class: 'mbars' }, ...M.series.map((d) => el('span', { title: shortDay(d.d) + ': ' + eur(toEur(d.cr)), style: 'height:' + Math.max(1, d.cr / maxS * 100) + '%' })))
+          : el('p', { class: 'muted', style: 'margin:0' }, 'Ancora nessuna generazione AI pagata con i crediti in questo periodo.')),
+      el('div', { class: 'card' }, el('h2', null, 'Dove vanno i crediti'),
+        (M.models || []).length ? barList(M.models.map((x) => [x.model || 'Altro', Math.round(x.cr), eur(toEur(x.cr)) + ' · ' + x.n + ' lavori'])) : el('p', { class: 'muted', style: 'margin:0' }, 'Nessun dato'))),
+    el('div', { class: 'cards' },
+      el('div', { class: 'card' }, el('h2', null, 'Crediti regalati nel periodo'), el('div', { class: 'minis' },
+        el('div', null, el('b', null, num(M.given.welcome)), el('span', null, 'di benvenuto')), el('div', null, el('b', null, num(M.given.gift)), el('span', null, 'regalati da voi')),
+        el('div', null, el('b', null, num(M.given.monthly)), el('span', null, 'dei piani')), el('div', null, el('b', null, eur(toEur(M.given.welcome + M.given.gift))), el('span', null, 'costo massimo dei regali')))),
+      el('div', { class: 'card' }, el('h2', null, 'Chi usa più crediti'), (M.top || []).length
+        ? el('div', { class: 'bars' }, ...M.top.map((t) => el('div', { class: 'bar-r' }, t.id && CAN('users') ? el('button', { class: 'linkish', type: 'button', style: 'text-align:left;font-weight:500', onclick: () => openUser(t.id) }, t.who || '—') : el('span', null, t.who || '—'),
+          el('span', { class: 'track' }, el('i', { style: 'width:' + Math.max(2, t.cr / M.top[0].cr * 100) + '%' })), el('b', null, eur(toEur(t.cr))))))
+        : el('p', { class: 'muted', style: 'margin:0' }, 'Nessuno nel periodo'))),
+    el('p', { class: 'muted fine' }, 'Il costo API è calcolato dai crediti scalati: ' + (M.per_usd || 280) + ' crediti = 1 $ di costo dei fornitori, cambio 1 $ = ' + ECO.fx + ' € (lo cambi in Crediti e offerte → Ipotesi dei conti). '
+      + 'Il costo reale lo vedi sulle bollette di fal, ElevenLabs e Anthropic: se si discosta di molto, va corretto il listino dei crediti.')));
+}
 // ------------------------------------------------------------------ avvio
 let startView = 'overview';
 try { startView = localStorage.getItem('nuvora.admin.view') || 'overview'; } catch (e) { /* */ }
