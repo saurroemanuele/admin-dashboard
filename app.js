@@ -241,7 +241,7 @@ function renderBeta(main) {
 
 // ------------------------------------------------------------------ crediti di un utente (nel pannello utente)
 const eur = (n) => (+n || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-const num = (n) => Math.round(+n || 0).toLocaleString('it-IT');
+const num = (n) => { const v = Math.round(+n || 0); return (v < 0 ? '-' : '') + String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); };
 const KIND = { welcome: 'Benvenuto', gift: 'Regalo', grant: 'Accredito', purchase: 'Acquisto', charge: 'Uso AI', refund: 'Rimborso', settle: 'Conguaglio', adjust: 'Correzione', monthly: 'Crediti del mese', expire: 'Scaduti' };
 function creditsBox(uid) {
   const box = el('section', { class: 'crbox' }, el('h3', null, 'Crediti'), el('div', { class: 'loading' }, 'Caricamento…'));
