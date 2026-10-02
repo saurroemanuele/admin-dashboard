@@ -74,7 +74,7 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
@@ -108,6 +108,7 @@ async function load(view, force) {
     if (view === 'money' && (force || !S.money)) S.money = await sql('money', { days: S.mdays || 30 });
     if (view === 'apis' && (force || !S.keys)) S.keys = await loadKeys();
     if (view === 'tasks' && (force || !S.tasks)) S.tasks = await sql('tasks');
+    if (view === 'updates' && (force || !S.rel)) S.rel = await sql('releases');
     if (view === 'team' && (force || !S.team)) { [S.team, S.audit] = await Promise.all([sql('team'), sql('audit', { limit: 120 })]); }
     if (force) { ME = { ...ME, ...(await sql('me')) }; paintMe(); }
     S.err = null; lastLoad = new Date();
@@ -132,11 +133,12 @@ function render() {
   if (S.view === 'messages') renderMessages(main);
   if (S.view === 'money') renderMoney(main);
   if (S.view === 'apis') renderApis(main);
+  if (S.view === 'updates') renderUpdates(main);
 }
 const SUB = {
   Panoramica: 'Come va l\'app oggi: iscritti, utenti attivi e funzioni più usate.',
   Utenti: 'Tutti gli account NoonFrame. Clicca una persona per vedere dispositivi, uso e crediti.',
-  Segnalazioni: 'Bug e idee mandati dall\'app. Approva e Claude le sistema; rifiuta e non verranno fatte.',
+  Segnalazioni: 'Bug e idee mandati dall\'app. Le approvi, Claude le sistema in beta, tu le provi e le segni come fatte.',
   'Beta tester': 'Chi può provare le versioni nuove prima di tutti.',
   'Crediti e offerte': 'Prezzi dei piani, ricariche e offerte lampo che vedono gli utenti nell\'app.',
   Lancio: 'I numeri del lancio confrontati con gli obiettivi. Non contano le persone del team.',
@@ -145,6 +147,7 @@ const SUB = {
   Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
   Messaggi: 'Avvisi e novità che arrivano nella campanella dell\'app.',
   Soldi: 'Quanto costano davvero le AI e quanti crediti sono ancora in giro.',
+  Aggiornamenti: 'Tutte le versioni di NoonFrame: cosa c\'è in beta, cosa hanno gli utenti e cosa è cambiato ogni volta.',
   'API e fornitori': 'I servizi che pagano le AI dell\'app: se le chiavi ci sono, quanto credito resta e dove ricaricare.',
 };
 const head = (title, ...right) => el('div', { class: 'head' }, el('div', { class: 'ttl' }, el('h1', null, title), SUB[title] ? el('p', null, SUB[title]) : null), ...right);
@@ -520,12 +523,48 @@ async function openUser(id) {
 }
 
 // ------------------------------------------------------------------ segnalazioni
-const RTABS = [['nuova', 'Da decidere'], ['coda', 'In coda'], ['fatta', 'Fatte'], ['rifiutata', 'Rifiutate'], ['all', 'Tutte']];
-const inTab = (r, t) => t === 'all' || (t === 'coda' ? ['approvata', 'in_lavorazione'].includes(r.status) : t === 'rifiutata' ? ['rifiutata', 'chiusa'].includes(r.status) : r.status === t);
+// il percorso di una segnalazione: da decidere → da fare (Claude) → da provare (in beta) → fatta
+const RTABS = [['nuova', 'Da decidere'], ['fare', 'Da fare'], ['prova', 'Da provare'], ['fatta', 'Fatte'], ['rifiutata', 'Rifiutate'], ['all', 'Tutte']];
+const stage = (r) => r.status === 'nuova' ? 'nuova' : r.status === 'in_lavorazione' && r.done_version ? 'prova'
+  : ['approvata', 'in_lavorazione'].includes(r.status) ? 'fare' : ['rifiutata', 'chiusa'].includes(r.status) ? 'rifiutata' : 'fatta';
+const inTab = (r, t) => t === 'all' || stage(r) === t;
 function statusPill(st, r) {
-  const m = { nuova: ['new', 'Da decidere'], approvata: ['queued', 'Approvata'], in_lavorazione: ['queued', 'In lavorazione'], fatta: ['done', 'Fatta'], rifiutata: ['no', 'Rifiutata'], chiusa: ['no', 'Chiusa'] }[st] || ['no', st];
-  if (st === 'nuova' && r && r.question) return el('span', { class: 'pill new' }, 'Domanda per te');
-  return el('span', { class: 'pill ' + m[0] }, st === 'fatta' && r && r.done_version ? 'Fatta · ' + r.done_version : m[1]);
+  r = r || { status: st };
+  const g = stage(r);
+  if (r.question && (g === 'nuova' || g === 'fare')) return el('span', { class: 'pill new' }, 'Domanda per te');
+  if (g === 'nuova') return el('span', { class: 'pill new' }, 'Da decidere');
+  if (g === 'fare') return el('span', { class: 'pill queued' }, r.status === 'approvata' ? 'In coda per Claude' : 'Claude ci lavora');
+  if (g === 'prova') return el('span', { class: 'pill try' }, 'Da provare · ' + r.done_version);
+  if (g === 'fatta') return el('span', { class: 'pill done' }, r.done_version ? 'Fatta · ' + r.done_version : 'Fatta');
+  return el('span', { class: 'pill no' }, r.status === 'chiusa' ? 'Chiusa' : 'Rifiutata');
+}
+const STEPS = ['Arrivata', 'Approvata', 'Claude ci lavora', 'In beta', 'Fatta'];
+function tracker(r) {
+  const g = stage(r);
+  if (g === 'rifiutata') return null;
+  const at = g === 'nuova' ? 0 : g === 'fare' ? (r.status === 'approvata' ? 1 : 2) : g === 'prova' ? 3 : 4;
+  return el('ol', { class: 'track-r', 'aria-label': 'A che punto è' }, ...STEPS.map((t, i) => el('li', { class: i < at ? 'past' : i === at ? 'now' : '' }, el('i', null), el('span', null, t))));
+}
+function nextText(r) {
+  const g = stage(r);
+  if (g === 'nuova') return 'Decidi tu: se la approvi, Claude la sistema al prossimo giro (ogni 2 ore). Se non serve, rifiutala.';
+  if (g === 'fare') return r.status === 'approvata' ? 'È in coda: Claude la prende al prossimo giro. Se non serve più, toglila dalla coda.'
+    : 'Claude ci sta lavorando. Quando è pronta passa in «Da provare».';
+  if (g === 'prova') return 'È nella beta ' + r.done_version + '. Provala: se funziona segnala come fatta, se no scrivi cosa non va e rimandala a Claude. Arriva a tutti quando la beta va in stabile.';
+  if (g === 'fatta') return 'Fatta' + (r.done_version ? ' nella ' + r.done_version : '') + '. Se il problema torna, riaprila con una nota.';
+  return 'Rifiutata: non verrà fatta. Puoi riaprirla se cambi idea.';
+}
+function actions(r, decide) {
+  const b = (cls, label, k, fn, tip) => el('button', { class: 'btn' + (cls ? ' ' + cls : ''), type: 'button', 'data-k': k || null, title: tip || null, onclick: fn }, label, k ? el('kbd', null, k.toUpperCase()) : null);
+  const g = stage(r);
+  if (g === 'nuova') return [b('good', 'Approva', 'a', () => decide('approvata')), b('bad', 'Rifiuta', 'r', () => decide('rifiutata'))];
+  if (g === 'fare') return [b('good', 'Segna come fatta', 'f', () => decide('fatta'), 'Già sistemata: esce dalla coda'),
+    b('', 'Togli dalla coda', 't', () => decide('nuova'), 'Claude non la fa: torna tra quelle da decidere'),
+    b('bad', 'Rifiuta', 'r', () => decide('rifiutata')), b('ghost', 'Salva la nota', null, () => decide(r.status))];
+  if (g === 'prova') return [b('good', 'Funziona: segna come fatta', 'f', () => decide('fatta')),
+    b('', 'Non va ancora', 'n', () => decide('approvata', true), 'Torna a Claude con la tua nota'),
+    b('', 'Togli dalla coda', 't', () => decide('nuova'))];
+  return [b('', g === 'fatta' ? 'Riapri' : 'Riapri e approva', 'n', () => decide('approvata', true), 'Torna a Claude con la tua nota')];
 }
 function renderReports(main) {
   const list = S.reports || [];
@@ -557,16 +596,18 @@ function renderReports(main) {
     }
     const imgs = (r.images || []).filter((i) => /^image\/(png|jpeg|webp)$/.test(i.mime || '') && /^[A-Za-z0-9+/=]+$/.test(i.data || '')).map((i) => 'data:' + i.mime + ';base64,' + i.data);
     const sys = r.system || {};
-    const note = el('textarea', { class: 'note', id: 'rnote', placeholder: r.status === 'fatta' ? 'Qualcosa non va ancora? Scrivilo e riapri.' : 'Nota per Claude (facoltativa): come la vuoi, dove, cosa evitare…' });
+    const note = el('textarea', { class: 'note', id: 'rnote', placeholder: ['fatta', 'rifiutata', 'chiusa'].includes(r.status) ? 'Cosa non va? Scrivilo e riaprila.' : 'Come la vuoi, dove, cosa evitare…' });
     note.value = S.drafts[r.id] ?? (r.decision_note || '');
     note.addEventListener('input', () => { S.drafts[r.id] = note.value; });
-    const decide = async (status) => {
+    const decide = async (status, again) => {
       try {
+        if (status === 'approvata' && again && !note.value.trim()) { note.focus(); note.placeholder = 'Scrivi cosa non va ancora: Claude riparte da qui.'; toast('Scrivi prima cosa non va'); return; }
         const nd = await sql('set_report', { id: r.id, status, note: note.value.trim() });
         delete S.drafts[r.id];
         S.rdet[r.id] = { ...r, ...nd, images: r.images };
-        const i = S.reports.findIndex((x) => x.id === r.id); if (i >= 0) S.reports[i] = { ...S.reports[i], status: nd.status, question: nd.question };
-        toast(status === 'approvata' ? (r.status === 'fatta' ? 'Riaperta: Claude la riprende' : 'Approvata') : status === 'rifiutata' ? 'Rifiutata' : 'Rimessa da decidere');
+        const i = S.reports.findIndex((x) => x.id === r.id); if (i >= 0) S.reports[i] = { ...S.reports[i], status: nd.status, question: nd.question, done_version: nd.done_version };
+        toast(status === 'fatta' ? 'Segnata come fatta' : status === 'rifiutata' ? 'Rifiutata' : status === 'nuova' ? 'Tolta dalla coda: è di nuovo da decidere'
+          : again || ['fatta', 'rifiutata', 'chiusa'].includes(r.status) ? 'Rimandata a Claude' : r.status === 'nuova' ? 'Approvata: Claude la prende al prossimo giro' : 'Nota salvata');
         if (S.rtab !== 'all') { const next = visible().find((x) => x.id !== r.id && inTab(x, S.rtab)); S.rsel = next ? next.id : null; }
         load('overview'); paintList(); paintDetail();
         const segBtns = main.querySelectorAll('.head .seg button i'); RTABS.forEach(([k], j) => { if (segBtns[j]) segBtns[j].textContent = S.reports.filter((x) => inTab(x, k)).length; });
@@ -580,24 +621,19 @@ function renderReports(main) {
           r.user_id ? el('button', { class: 'linkish', type: 'button', onclick: () => openUser(r.user_id) }, r.who) : el('b', null, r.who),
           r.internal ? el('span', { class: 'pill no' }, 'interna') : null, el('span', { class: 'muted' }, full(r.created_at)), statusPill(st, r)),
         el('p', { class: 'quote' }, r.text || '(senza testo)'),
+        tracker(r), el('p', { class: 'next' }, nextText(r)),
         el('div', { class: 'meta' }, r.app_version ? el('span', null, el('b', null, 'App'), r.app_version) : null, r.os ? el('span', null, el('b', null, 'Sistema'), r.os + (sys.machine ? ' · ' + sys.machine : '')) : null,
           sys.gpu != null ? el('span', null, el('b', null, 'GPU'), sys.gpu ? 'NVIDIA' : 'no') : null, r.screen ? el('span', null, el('b', null, 'Schermata'), r.screen) : null,
           r.contact ? el('span', null, el('b', null, 'Contatto'), r.contact) : null, r.email ? el('span', null, el('b', null, 'Email'), r.email) : null),
         imgs.length ? el('div', { class: 'shots' }, ...imgs.map((u) => el('button', { type: 'button', onclick: () => lightbox(u) }, el('img', { src: u, alt: 'Screenshot', loading: 'lazy' })))) : null,
         r.question && !['fatta', 'chiusa'].includes(st) ? el('div', { class: 'box ask' }, el('h3', null, 'Claude ti chiede'), el('p', null, r.question)) : null,
         CAN('reports_decide') ? replyBox(r) : null,
-        r.done_note ? el('div', { class: 'box done' }, el('h3', null, r.done_version ? 'Fatto nella ' + r.done_version : 'Cosa è stato fatto'), el('p', null, r.done_note)) : null,
+        r.done_note ? el('div', { class: 'box done' }, el('h3', null, stage(r) === 'prova' ? 'Pronta nella beta ' + r.done_version : r.done_version ? 'Fatto nella ' + r.done_version : 'Cosa è stato fatto'), el('p', null, r.done_note)) : null,
         (r.errors || []).length ? el('details', { class: 'box' }, el('summary', null, 'Errori (' + r.errors.length + ')'), el('pre', null, r.errors.join('\n\n'))) : null,
         r.log ? el('details', { class: 'box' }, el('summary', null, 'Log'), el('pre', null, r.log.split('\n').filter((l) => !/^\[(http|media)\]/.test(l)).slice(-80).join('\n'))) : null),
       !CAN('reports_decide') ? (CAN('tasks') ? el('div', { class: 'act' }, el('div', { class: 'act-in' }, el('div', { class: 'row' }, taskFromReport(r)))) : null) :
-      el('div', { class: 'act' }, el('div', { class: 'act-in' }, note, el('div', { class: 'row' },
-        st === 'fatta' || st === 'chiusa'
-          ? el('button', { class: 'btn', type: 'button', onclick: () => decide('approvata') }, 'Riapri con la nota')
-          : [el('button', { class: 'btn good', type: 'button', onclick: () => decide('approvata') }, st === 'nuova' ? 'Approva' : 'Aggiorna la nota', el('kbd', null, 'A')),
-             st !== 'rifiutata' ? el('button', { class: 'btn bad', type: 'button', onclick: () => decide('rifiutata') }, 'Rifiuta', el('kbd', null, 'R')) : null,
-             st !== 'nuova' ? el('button', { class: 'btn', type: 'button', onclick: () => decide('nuova') }, 'Rimetti da decidere') : null],
-        el('span', { class: 'grow' }), CAN('tasks') ? taskFromReport(r) : null,
-        el('span', { class: 'act-state' }, st === 'approvata' ? 'Claude la prende al prossimo giro.' : st === 'in_lavorazione' ? 'Claude ci sta lavorando.' : st === 'rifiutata' ? 'Non verrà fatta.' : '')))));
+      el('div', { class: 'act' }, el('div', { class: 'act-in' }, el('label', { class: 'note-l', for: 'rnote' }, stage(r) === 'prova' ? 'Cosa non va ancora? (serve solo se la rimandi a Claude)' : 'Nota per Claude (facoltativa)'), note, el('div', { class: 'row' },
+        ...actions(r, decide), el('span', { class: 'grow' }), CAN('tasks') ? taskFromReport(r) : null))));
   }
   RENDER_DETAIL = paintDetail; LIST_ROWS = visible;
   paintList(); paintDetail();
@@ -616,7 +652,7 @@ function newRequest() {
       el('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
         const text = ta.value.trim(); if (!text) { ta.focus(); return; }
         e.currentTarget.disabled = true;
-        try { const id = await sql('create_request', { text, kind }); bg.remove(); toast('Richiesta inviata a Claude'); S.rtab = 'coda'; S.rsel = id; await load('reports', true); load('overview'); }
+        try { const id = await sql('create_request', { text, kind }); bg.remove(); toast('Richiesta inviata a Claude'); S.rtab = 'fare'; S.rsel = id; await load('reports', true); load('overview'); }
         catch (x) { e.currentTarget.disabled = false; toast(explain(x)); }
       } }, 'Invia a Claude'))));
   document.body.append(bg); ta.focus();
@@ -627,8 +663,54 @@ document.addEventListener('keydown', (e) => {
   const rows = LIST_ROWS ? LIST_ROWS() : []; const i = rows.findIndex((r) => r.id === S.rsel);
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); if (rows[i + 1]) { S.rsel = rows[i + 1].id; renderReports($('#main')); } }
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); if (i > 0) { S.rsel = rows[i - 1].id; renderReports($('#main')); } }
-  else if ((e.key === 'a' || e.key === 'r') && CAN('reports_decide') && i >= 0 && !['fatta', 'chiusa'].includes(rows[i].status)) { const b = [...document.querySelectorAll('.act .btn')].find((x) => x.textContent.startsWith(e.key === 'a' ? 'Approva' : 'Rifiuta')); if (b) b.click(); }
+  else if (/^[artfn]$/.test(e.key) && CAN('reports_decide') && i >= 0) { const b = document.querySelector('.act [data-k="' + e.key + '"]'); if (b) b.click(); }
 });
+
+
+// ------------------------------------------------------------------ aggiornamenti: beta, stabile, installer e storico delle note
+const UTYPE = { feat: 'Novità', fix: 'Correzione', impr: 'Miglioramento' };
+const vcmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); } return 0; };
+const dayIt = (d) => { if (!d) return ''; const t = new Date(String(d).length === 10 ? d + 'T12:00:00' : d); return isNaN(t) ? d : t.toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: t.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined }); };
+function renderUpdates(main) {
+  const R = S.rel;
+  const refresh = CAN('beta') ? el('button', { class: 'btn', type: 'button', onclick: async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = 'Controllo…';
+    try { await sql('releases', { op: 'refresh' }); await new Promise((r) => setTimeout(r, 4000)); S.rel = await sql('releases'); toast('Aggiornato'); } catch (x) { toast(explain(x)); }
+    render();
+  } }, 'Controlla ora') : null;
+  if (!R) { rc(main, head('Aggiornamenti', refresh), el('div', { class: 'body' }, S.err ? el('div', { class: 'err' }, S.err) : el('div', { class: 'loading' }, 'Caricamento…'))); return; }
+  const st = R.stable || {}, be = R.beta || {}, hist = R.history || [];
+  const inst = (R.installer || [])[0], instV = inst ? String(inst.tag || '').replace(/^installer-/, '') : null;
+  const ahead = be.version && st.version && vcmp(be.version, st.version) > 0;
+  const users = {}; ((S.ov && S.ov.versions) || []).forEach((x) => { users[x.v] = x.n; });
+  const nUsers = (v) => users[v] ? users[v] + (users[v] === 1 ? ' utente' : ' utenti') : '';
+  const card = (cls, label, big, sub) => el('div', { class: 'up-c ' + cls }, el('span', null, label), el('b', null, big || '—'), sub ? el('small', null, sub) : null);
+  const items = (list) => el('ul', { class: 'up-items' }, ...(list || []).map((it) => el('li', null, el('span', { class: 'up-t ' + it.type }, UTYPE[it.type] || it.type), el('span', null, it.text))));
+  // filtri
+  const t = (S.uq2 || '').trim().toLowerCase(), ty = S.utype || 'all';
+  const rows = hist.map((v) => ({ ...v, items: (v.items || []).filter((it) => (ty === 'all' || it.type === ty) && (!t || (it.text + ' ' + (it.en || '')).toLowerCase().includes(t) || String(v.version).includes(t))) }))
+    .filter((v) => v.items.length || (!t && ty === 'all'));
+  const shown = rows.slice(0, S.ulimit || 25);
+  const q = el('input', { class: 'search', type: 'search', placeholder: 'Cerca una modifica o una versione', value: S.uq2 || '', 'aria-label': 'Cerca nelle note' });
+  q.addEventListener('input', () => { S.uq2 = q.value; S.ulimit = 25; const pos = q.selectionStart; renderUpdates(main); const nq = main.querySelector('.up-tools .search'); nq.focus(); nq.setSelectionRange(pos, pos); });
+  const seg = el('div', { class: 'seg' }, ...[['all', 'Tutto'], ['feat', 'Novità'], ['fix', 'Correzioni'], ['impr', 'Miglioramenti']].map(([k, l]) =>
+    el('button', { type: 'button', 'aria-pressed': String(ty === k), onclick: () => { S.utype = k; S.ulimit = 25; renderUpdates(main); } }, l)));
+  rc(main, head('Aggiornamenti', refresh), el('div', { class: 'body' }, S.err ? el('div', { class: 'err' }, S.err) : null, el('div', { class: 'up' },
+    el('div', { class: 'up-top' },
+      card('', 'Versione per tutti', st.version, [st.date ? 'Dal ' + dayIt(st.date) : '', nUsers(st.version)].filter(Boolean).join(' · ')),
+      card(ahead ? 'beta' : '', 'Beta da provare', ahead ? be.version : null, ahead ? 'Solo per i beta tester, aspetta il tuo ok' : 'Nessuna beta in attesa'),
+      card(instV && st.version && instV !== st.version ? 'warn' : '', 'Installer sul sito', instV, !instV ? 'Non ancora letto' : instV === st.version ? 'Uguale alla versione per tutti' : 'Indietro: si ricrea da solo a ogni versione per tutti'),
+      card('', 'Versioni pubblicate', String(hist.length), hist.length ? 'Dalla ' + hist[hist.length - 1].version + ' del ' + dayIt(hist[hist.length - 1].date) : '')),
+    ahead ? el('section', { class: 'up-beta' }, el('h2', null, 'In beta: ' + be.version),
+      el('p', null, 'Ce l\'hanno solo i beta tester. Quando l\'hai provata, scrivi «ok» a Claude: arriva a tutti e si aggiorna anche l\'installer sul sito.'), items(be.items)) : null,
+    el('div', { class: 'up-tools' }, q, seg, el('span', { class: 'grow' }), R.updated_at ? el('small', { class: 'muted' }, 'Letto ' + when(R.updated_at)) : null),
+    el('div', { class: 'up-list' }, ...(shown.length ? shown.map((v) => el('article', { class: 'up-v' },
+      el('div', { class: 'up-vh' }, el('b', null, v.version), el('small', null, dayIt(v.date)), nUsers(v.version) ? el('small', null, nUsers(v.version)) : null,
+        v.version === st.version ? el('span', { class: 'pill done' }, 'Per tutti ora') : null),
+      v.items.length ? items(v.items) : el('p', { class: 'muted', style: 'margin:0' }, 'Nessuna nota per questa versione.')))
+      : [el('div', { class: 'empty' }, 'Nessuna modifica trovata.')]),
+      rows.length > shown.length ? el('button', { class: 'btn up-more', type: 'button', onclick: () => { S.ulimit = (S.ulimit || 25) + 50; renderUpdates(main); } }, 'Mostra altre ' + Math.min(50, rows.length - shown.length) + ' versioni') : null))));
+}
 
 // ------------------------------------------------------------------ lancio: numeri dei primi giorni contro gli obiettivi
 const GOALS = [
