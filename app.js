@@ -1229,7 +1229,7 @@ async function loadKeys() {
 }
 function renderApis(main) {
   const body = el('div', { class: 'body shop-body' });
-  rc(main, head('API e fornitori', el('button', { class: 'btn', type: 'button', onclick: async () => { S.keys = null; renderApis(main); try { S.keys = await loadKeys(); } catch (e) { S.err = explain(e); } renderApis(main); } }, 'Controlla di nuovo')), body);
+  rc(main, head('API e fornitori', el('button', { class: 'btn', type: 'button', onclick: async () => { S.keys = null; S.err = null; renderApis(main); try { S.keys = await loadKeys(); } catch (e) { S.err = explain(e); } renderApis(main); } }, 'Controlla di nuovo')), body);
   if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
   const K = S.keys;
   if (!K) { rc(body, el('div', { class: 'loading' }, 'Controllo le chiavi…')); return; }
