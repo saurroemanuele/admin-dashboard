@@ -407,3 +407,17 @@ select.search { padding: 0 8px; }
 .mbars { display: flex; align-items: flex-end; gap: 2px; height: 160px; }
 .mbars span { flex: 1; background: var(--c1); border-radius: 2px 2px 0 0; min-width: 2px; }
 @media (max-width: 900px) { .member.msg { grid-template-columns: 10px 1fr; } .member.msg > span:not(.mk):not(.mb-who) { grid-column: 2; } }
+
+/* API e fornitori */
+.apis { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+.card.api { display: grid; gap: 12px; align-content: start; }
+.api-top { display: flex; align-items: center; gap: 12px; }
+.api-top b { display: block; font-size: 15px; } .api-top small { color: var(--text3); font-size: 12.5px; }
+.sdot-w { width: 28px; height: 28px; display: grid; place-items: center; }
+.api-bal { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--raised); }
+.api-bal b { font-size: 20px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; } .api-bal span { color: var(--text2); font-size: 12.5px; }
+.api-bal.low { background: var(--wait-soft); } .api-bal.low b { color: var(--wait); }
+.api-note { margin: 0; font-size: 12.5px; }
+.api-note code { font: 12px var(--mono); color: var(--text); background: var(--raised); padding: 1px 6px; border-radius: 5px; }
+a.btn { text-decoration: none; color: inherit; }
+a.btn.primary { color: #fff; }

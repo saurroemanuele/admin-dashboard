@@ -74,7 +74,7 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { overview: '', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
@@ -106,6 +106,7 @@ async function load(view, force) {
     if (view === 'status' && (force || !S.status)) S.status = await sql('status');
     if (view === 'messages' && (force || !S.messages)) S.messages = await sql('messages');
     if (view === 'money' && (force || !S.money)) S.money = await sql('money', { days: S.mdays || 30 });
+    if (view === 'apis' && (force || !S.keys)) S.keys = await loadKeys();
     if (view === 'tasks' && (force || !S.tasks)) S.tasks = await sql('tasks');
     if (view === 'team' && (force || !S.team)) { [S.team, S.audit] = await Promise.all([sql('team'), sql('audit', { limit: 120 })]); }
     if (force) { ME = { ...ME, ...(await sql('me')) }; paintMe(); }
@@ -130,6 +131,7 @@ function render() {
   if (S.view === 'status') renderStatus(main);
   if (S.view === 'messages') renderMessages(main);
   if (S.view === 'money') renderMoney(main);
+  if (S.view === 'apis') renderApis(main);
 }
 const SUB = {
   Panoramica: 'Come va l\'app oggi: iscritti, utenti attivi e funzioni più usate.',
@@ -143,6 +145,7 @@ const SUB = {
   Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
   Messaggi: 'Avvisi e novità che arrivano nella campanella dell\'app.',
   Soldi: 'Quanto costano davvero le AI e quanti crediti sono ancora in giro.',
+  'API e fornitori': 'I servizi che pagano le AI dell\'app: se le chiavi ci sono, quanto credito resta e dove ricaricare.',
 };
 const head = (title, ...right) => el('div', { class: 'head' }, el('div', { class: 'ttl' }, el('h1', null, title), SUB[title] ? el('p', null, SUB[title]) : null), ...right);
 
@@ -382,6 +385,7 @@ function renderShop(main) {
     const f = {
       id: el('input', { class: 'search', value: p.id, disabled: n ? null : true, placeholder: 'es. creator' }),
       name: el('input', { class: 'search', value: p.name }), price: el('input', { class: 'search', type: 'number', step: '0.01', value: p.price_eur }),
+      priceYear: el('input', { class: 'search', type: 'number', step: '0.01', value: p.price_year_eur ?? '', placeholder: 'vuoto = niente annuale' }),
       monthly: el('input', { class: 'search', type: 'number', step: '1', value: p.monthly }), maxPending: el('input', { class: 'search', type: 'number', step: '1', value: p.max_pending }),
       tagline: el('input', { class: 'search', value: p.tagline || '' }), taglineEn: el('input', { class: 'search', value: p.tagline_en || '' }),
       perks: el('textarea', { class: 'note', rows: '3' }), perksEn: el('textarea', { class: 'note', rows: '3' }),
@@ -391,13 +395,17 @@ function renderShop(main) {
     f.perks.value = (p.perks || []).join('\n'); f.perksEn.value = (p.perks_en || []).join('\n');
     const lines = (t) => t.value.split('\n').map((x) => x.trim()).filter(Boolean);
     return el('div', { class: 'card shop-card' + (p.active ? '' : ' off') }, el('h2', null, n ? 'Nuovo piano' : p.name),
-      el('div', { class: 'fgrid' }, n ? field('Codice (non si cambia)', f.id) : null, field('Nome', f.name), field('Prezzo al mese (€)', f.price), field('Crediti al mese', f.monthly),
+      el('div', { class: 'fgrid' }, n ? field('Codice (non si cambia)', f.id) : null, field('Nome', f.name), field('Prezzo al mese (€)', f.price), field('Prezzo all\'anno (€)', f.priceYear), field('Crediti al mese', f.monthly),
         field('Generazioni insieme', f.maxPending), field('Ordine', f.sort)),
       field('Frase sotto il nome', f.tagline), field('In inglese', f.taglineEn),
       field('Vantaggi (uno per riga)', f.perks), field('Vantaggi in inglese', f.perksEn),
       (() => { const lm = liveMargin(() => [f.price.value, f.monthly.value], 'Ti resta ogni mese'); f.price.addEventListener('input', lm.upd); f.monthly.addEventListener('input', lm.upd); return lm.slot; })(),
+      (() => {
+        const sub = () => { const y = +f.priceYear.value, m = +f.price.value; return y > 0 && m > 0 ? 'Annuale: sconto ' + Math.round((1 - y / (m * 12)) * 100) + '% sul mensile · ti resta in un anno' : 'Annuale (se lo imposti): ti resta in un anno'; };
+        const lm = liveMargin(() => [f.priceYear.value || 0, (+f.monthly.value || 0) * 12], sub);
+        [f.priceYear, f.price, f.monthly].forEach((x) => x.addEventListener('input', lm.upd)); return lm.slot; })(),
       el('div', { class: 'row', style: 'gap:16px' }, el('label', { class: 'chk' }, f.premium, ' Modelli premium'), el('label', { class: 'chk' }, f.active, ' In vendita')),
-      el('button', { class: 'btn primary sm', type: 'button', onclick: () => save('save_plan', { id: n ? f.id.value.trim().toLowerCase() : p.id, name: f.name.value.trim(), price: f.price.value, monthly: f.monthly.value,
+      el('button', { class: 'btn primary sm', type: 'button', onclick: () => save('save_plan', { id: n ? f.id.value.trim().toLowerCase() : p.id, name: f.name.value.trim(), price: f.price.value, priceYear: f.priceYear.value, monthly: f.monthly.value,
         maxPending: f.maxPending.value, sort: f.sort.value, premium: f.premium.checked, active: f.active.checked, tagline: f.tagline.value.trim(), taglineEn: f.taglineEn.value.trim(), perks: lines(f.perks), perksEn: lines(f.perksEn) }, 'Piano salvato') }, n ? 'Crea piano' : 'Salva'));
   }
   function packCard(k) {
@@ -900,7 +908,7 @@ const PERMS = [
   ['users', 'Vedere gli utenti', 'Email, dispositivi e uso dell\'app: sono dati personali'],
   ['users_edit', 'Gestire gli utenti', 'Bloccare account, scrivere note, regalare crediti e piani', 'users'],
   ['shop', 'Prezzi e offerte', 'Piani, ricariche e offerte lampo che vedono gli utenti'],
-  ['money', 'Soldi', 'Costi delle AI, crediti in giro e (quando ci saranno) incassi'],
+  ['money', 'Soldi e fornitori API', 'Costi delle AI, crediti in giro, incassi e saldo dei fornitori'],
   ['messages', 'Messaggi agli utenti', 'Pubblicare avvisi e novità nella home dell\'app'],
   ['beta', 'Beta tester', 'Chi può provare le versioni nuove'],
   ['team', 'Team e permessi', 'Aggiungere persone e vedere il registro delle azioni'],
@@ -1200,6 +1208,65 @@ function renderMoney(main) {
         : el('p', { class: 'muted', style: 'margin:0' }, 'Nessuno nel periodo'))),
     el('p', { class: 'muted fine' }, 'Il costo API è calcolato dai crediti scalati: ' + (M.per_usd || 280) + ' crediti = 1 $ di costo dei fornitori, cambio 1 $ = ' + ECO.fx + ' € (lo cambi in Crediti e offerte → Ipotesi dei conti). '
       + 'Il costo reale lo vedi sulle bollette di fal, ElevenLabs e Anthropic: se si discosta di molto, va corretto il listino dei crediti.')));
+}
+// ------------------------------------------------------------------ API e fornitori: stato delle chiavi, saldo dove si può, link per ricaricare
+const PROJ_URL = 'https://supabase.com/dashboard/project/' + PROJECT;
+const PROVIDERS = [
+  { id: 'fal', name: 'fal.ai', use: 'Video e immagini AI', key: 'FAL_KEY', links: [['Ricarica', 'https://fal.ai/dashboard/billing'], ['Chiavi', 'https://fal.ai/dashboard/keys']] },
+  { id: 'elevenlabs', name: 'ElevenLabs', use: 'Voci AI', key: 'ELEVENLABS_API_KEY', links: [['Ricarica', 'https://elevenlabs.io/app/subscription'], ['Consumi', 'https://elevenlabs.io/app/usage'], ['Chiavi', 'https://elevenlabs.io/app/settings/api-keys']] },
+  { id: 'anthropic', name: 'Anthropic (Claude)', use: 'Testi, montaggio e grafica AI', key: 'ANTHROPIC_API_KEY', links: [['Ricarica', 'https://platform.claude.com/settings/billing'], ['Consumi', 'https://platform.claude.com/usage'], ['Limiti di spesa', 'https://platform.claude.com/settings/limits'], ['Chiavi', 'https://platform.claude.com/settings/keys']] },
+  { id: 'resend', name: 'Resend', use: 'Email: link di download e risposte del team', key: 'RESEND_API_KEY', links: [['Piano', 'https://resend.com/settings/billing'], ['Domini', 'https://resend.com/domains'], ['Chiavi', 'https://resend.com/api-keys']] },
+  { id: 'supabase', name: 'Supabase', use: 'Database, accessi e server dell\'app', links: [['Piano e consumi', PROJ_URL + '/settings/billing/usage'], ['Dove si mettono le chiavi', PROJ_URL + '/functions/secrets']] },
+];
+async function loadKeys() {
+  const { data, error } = await sb.functions.invoke('admin-keys', { body: {} });
+  if (error) {
+    let code = '';
+    try { code = (await error.context.json()).error; } catch (e) { /* */ }
+    throw { code: code === 'no_perm' ? 'no_perm' : code === 'mfa_required' ? 'mfa' : 'db', message: 'Non riesco a leggere lo stato delle chiavi.' };
+  }
+  return data;
+}
+function renderApis(main) {
+  const body = el('div', { class: 'body shop-body' });
+  rc(main, head('API e fornitori', el('button', { class: 'btn', type: 'button', onclick: async () => { S.keys = null; renderApis(main); try { S.keys = await loadKeys(); } catch (e) { S.err = explain(e); } renderApis(main); } }, 'Controlla di nuovo')), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  const K = S.keys;
+  if (!K) { rc(body, el('div', { class: 'loading' }, 'Controllo le chiavi…')); return; }
+  const a = (label, href, primary) => el('a', { class: 'btn sm' + (primary ? ' primary' : ''), href, target: '_blank', rel: 'noopener noreferrer' }, label, ' ↗');
+  const extra = (p) => {
+    if (p.id === 'fal' && K.fal) {
+      if (K.fal.balance != null && !isNaN(K.fal.balance)) return el('div', { class: 'api-bal' + (K.fal.balance < 10 ? ' low' : '') }, el('b', null, '$' + K.fal.balance.toFixed(2)), el('span', null, K.fal.balance < 10 ? 'credito rimasto: ricarica presto' : 'credito rimasto'));
+      if (K.fal.error === 'admin_key') return el('p', { class: 'muted api-note' }, 'Per vedere qui il saldo crea su fal una chiave di tipo Admin e salvala in Supabase come FAL_ADMIN_KEY.');
+    }
+    if (p.id === 'elevenlabs' && K.elevenlabs && K.elevenlabs.limit) {
+      const left = Math.max(0, K.elevenlabs.limit - K.elevenlabs.used), pct = left / K.elevenlabs.limit;
+      return el('div', { class: 'api-bal' + (pct < 0.15 ? ' low' : '') }, el('b', null, num(left)), el('span', null, 'caratteri rimasti su ' + num(K.elevenlabs.limit)
+        + (K.elevenlabs.reset ? ' · si ricaricano il ' + new Date(K.elevenlabs.reset * 1000).toLocaleDateString('it-IT', { day: 'numeric', month: 'long' }) : '')));
+    }
+    if (p.id === 'elevenlabs' && K.elevenlabs && K.elevenlabs.error === 'permission') return el('p', { class: 'muted api-note' }, 'La chiave non può leggere il piano: su ElevenLabs dalle il permesso "User: read" per vedere qui i caratteri rimasti.');
+    return null;
+  };
+  const missing = PROVIDERS.filter((p) => p.key && !K.keys[p.id]);
+  rc(body,
+    missing.length ? el('div', { class: 'box ask', style: 'margin:0 0 16px' }, el('h3', null, 'Chiavi mancanti'),
+      el('p', null, 'Mancano: ' + missing.map((p) => p.key).join(', ') + '. Senza, quelle funzioni non vanno per chi usa i crediti. Si mettono in Supabase → Edge Functions → Secrets.'),
+      el('div', { class: 'row', style: 'margin-top:8px' }, a('Apri la pagina delle chiavi', PROJ_URL + '/functions/secrets', true))) : null,
+    el('div', { class: 'apis' }, ...PROVIDERS.map((p) => {
+      const has = p.key ? K.keys[p.id] : true;
+      return el('section', { class: 'card api' },
+        el('div', { class: 'api-top' }, el('span', { class: 'sdot-w ' + (has ? 'ok' : 'bad') }, el('span', { class: 'sdot' })),
+          el('div', { class: 'grow' }, el('b', null, p.name), el('small', null, p.use)),
+          p.key ? el('span', { class: 'pill ' + (has ? 'done' : 'bad') }, has ? 'Chiave impostata' : 'Chiave mancante') : null),
+        extra(p),
+        p.key ? el('p', { class: 'muted api-note' }, 'Nome della chiave in Supabase: ', el('code', null, p.key)) : null,
+        el('div', { class: 'row wrap' }, ...p.links.map(([l, u], i) => a(l, u, i === 0))));
+    })),
+    el('div', { class: 'box', style: 'margin-top:16px' }, el('h3', null, 'Consigli'),
+      el('p', null, '• Su ogni fornitore attiva la ricarica automatica con un tetto mensile: se qualcuno abusa, al massimo spendi quel tetto.'),
+      el('p', null, '• Le chiavi vanno solo in Supabase (Secrets). Non scriverle mai in chat, in un file o nel codice: qui il pannello vede solo se ci sono, non il loro valore.'),
+      el('p', null, '• Il costo stimato delle AI lo trovi in Soldi; confrontalo ogni tanto con le bollette dei fornitori.')),
+    el('p', { class: 'muted fine', style: 'margin-top:10px' }, 'Controllato ' + when(K.at) + '.'));
 }
 // ------------------------------------------------------------------ avvio
 let startView = 'overview';
