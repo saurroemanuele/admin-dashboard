@@ -27,6 +27,8 @@ const SB_URL = 'https://jhoidpugjjvvkjccyrxg.supabase.co';
 const SB_KEY = 'sb_publishable_vam6nGEE5qCrRCXknhoWqQ_GvrpnvzR';   // chiave pubblica: da sola non apre nessun dato
 const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce' } });
 let READY = false;
+let ME = null;   // chi è entrato: nome, ruolo, permessi (decisi dal server, qui servono solo a nascondere)
+const CAN = (p) => !!ME && (ME.role === 'owner' || (ME.perms || []).includes(p));
 async function sql(fn, arg) {
   if (!READY) throw { code: 'auth' };
   const a = (fn === 'user_detail' || fn === 'report_detail') ? { id: arg } : (arg === undefined ? null : arg);
@@ -35,6 +37,7 @@ async function sql(fn, arg) {
     const m = String(error.message || '');
     if (/mfa_required/.test(m)) { READY = false; gate(); throw { code: 'mfa' }; }
     if (/not_admin/.test(m)) { READY = false; await sb.auth.signOut(); gate('Questo account non è autorizzato.'); throw { code: 'not_admin' }; }
+    if (/no_perm/.test(m)) throw { code: 'no_perm' };
     if (/JWT|jwt/.test(m)) { READY = false; gate(); throw { code: 'auth' }; }
     throw { code: 'db', message: m };
   }
@@ -44,6 +47,7 @@ function explain(e) {
   const c = e && e.code;
   if (c === 'auth' || c === 'mfa') return 'Accesso scaduto: entra di nuovo.';
   if (c === 'not_admin') return 'Questo account non è autorizzato.';
+  if (c === 'no_perm') return 'Non hai il permesso per farlo: chiedi a chi gestisce il team.';
   return (e && e.message) || 'Errore sconosciuto';
 }
 
@@ -68,9 +72,18 @@ function toast(m) { document.querySelectorAll('.toast').forEach((t) => t.remove(
 function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => lb.remove() }, el('img', { src: u, alt: '' })); document.body.append(lb); }
 
 // ------------------------------------------------------------------ navigazione
-const S = { view: 'overview', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
+const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
+const VIEW_PERM = { overview: '', launch: 'launch', tasks: 'tasks', reports: 'reports', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
+const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
+function paintMe() {
+  document.querySelectorAll('.nav-i[data-perm]').forEach((b) => { b.hidden = !CAN(b.dataset.perm); });
+  const me = $('#me'); if (me && ME) rc(me, el('b', null, ME.name || ME.email), el('small', null, ROLE_NAME[ME.role] || ME.role));
+  const tb = $('#tbadge'); if (tb && ME) { tb.hidden = !ME.my_tasks; tb.textContent = ME.my_tasks || ''; tb.title = 'Task assegnate a te'; }
+}
 function go(view) {
+  if (!allowed(view)) view = 'overview';
   S.view = view;
   document.querySelectorAll('.nav-i').forEach((b) => b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'));
   try { localStorage.setItem('nuvora.admin.view', view); } catch (e) { /* */ }
@@ -83,11 +96,15 @@ $('#reload').addEventListener('click', () => { S.rdet = {}; load(S.view, true); 
 async function load(view, force) {
   if (!READY) return;
   try {
-    if (view === 'overview' || force || !S.ov) { S.ov = await sql('overview'); }
+    if (view === 'overview' || (force && CAN('reports')) || !S.ov) { S.ov = await sql('overview'); }
     if (view === 'users' && (force || !S.users)) S.users = await sql('users', { limit: 2000 });
     if (view === 'reports' && (force || !S.reports)) S.reports = await sql('reports', {});
     if (view === 'beta' && (force || !S.beta)) S.beta = await sql('beta_list');
     if (view === 'shop' && (force || !S.shop)) S.shop = await sql('catalog', { op: 'list' });
+    if (view === 'launch' && (force || !S.launch)) S.launch = await sql('launch');
+    if (view === 'tasks' && (force || !S.tasks)) S.tasks = await sql('tasks');
+    if (view === 'team' && (force || !S.team)) { [S.team, S.audit] = await Promise.all([sql('team'), sql('audit', { limit: 120 })]); }
+    if (force) { ME = { ...ME, ...(await sql('me')) }; paintMe(); }
     S.err = null; lastLoad = new Date();
   } catch (e) { S.err = explain(e); }
   const n = S.ov ? S.ov.reports_new : 0;
@@ -103,8 +120,21 @@ function render() {
   if (S.view === 'reports') renderReports(main);
   if (S.view === 'beta') renderBeta(main);
   if (S.view === 'shop') renderShop(main);
+  if (S.view === 'launch') renderLaunch(main);
+  if (S.view === 'tasks') renderTasks(main);
+  if (S.view === 'team') renderTeam(main);
 }
-const head = (title, ...right) => el('div', { class: 'head' }, el('h1', null, title), ...right);
+const SUB = {
+  Panoramica: 'Come va l\'app oggi: iscritti, utenti attivi e funzioni più usate.',
+  Utenti: 'Tutti gli account NoonFrame. Clicca una persona per vedere dispositivi, uso e crediti.',
+  Segnalazioni: 'Bug e idee mandati dall\'app. Approva e Claude le sistema; rifiuta e non verranno fatte.',
+  'Beta tester': 'Chi può provare le versioni nuove prima di tutti.',
+  'Crediti e offerte': 'Prezzi dei piani, ricariche e offerte lampo che vedono gli utenti nell\'app.',
+  Lancio: 'I numeri del lancio confrontati con gli obiettivi. Non contano le persone del team.',
+  Task: 'Le cose da fare del team. Trascina una card per cambiarne lo stato.',
+  'Team e permessi': 'Chi può entrare in questo pannello e cosa può fare.',
+};
+const head = (title, ...right) => el('div', { class: 'head' }, el('div', { class: 'ttl' }, el('h1', null, title), SUB[title] ? el('p', null, SUB[title]) : null), ...right);
 
 // ------------------------------------------------------------------ panoramica
 function overview(o) {
@@ -116,7 +146,7 @@ function overview(o) {
       kpi(o.active_7d, 'Attivi in 7 giorni', (o.active_1d || 0) + ' nelle ultime 24 ore'),
       kpi(o.active_30d, 'Attivi in 30 giorni'),
       kpi(o.exports_7d, 'Video esportati', 'negli ultimi 7 giorni'),
-      kpi(o.reports_new, 'Segnalazioni da decidere', (o.reports_queued || 0) + ' in coda per Claude', o.reports_new > 0)),
+      CAN('reports') ? kpi(o.reports_new, 'Segnalazioni da decidere', (o.reports_queued || 0) + ' in coda per Claude', o.reports_new > 0) : null),
     el('div', { class: 'cards' },
       el('div', { class: 'card chart' }, el('h2', null, 'Ultimi 30 giorni', el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:var(--c1)' }), 'Nuovi iscritti'), el('span', null, el('i', { style: 'background:var(--c3)' }), 'Utenti attivi'))), chart(o.days || [])),
       el('div', { class: 'card' }, el('h2', null, 'Sistemi'), barList(Object.entries(plat).map(([k, v]) => [PLAT[k] || k, v])),
@@ -230,12 +260,12 @@ function creditsBox(uid) {
         el('div', { class: 'fact' }, el('span', null, 'Piano'), el('b', null, planName, w.plan !== 'free' && w.plan_until ? el('small', { class: 'muted' }, ' fino al ' + full(w.plan_until)) : null)),
         el('div', { class: 'fact' }, el('span', null, 'Del mese'), el('b', null, num(w.monthly), w.next_grant ? el('small', { class: 'muted' }, ' · rinnovo ' + full(w.next_grant)) : null)),
         el('div', { class: 'fact' }, el('span', null, 'Extra (non scadono)'), el('b', null, num(w.balance)))),
-      el('div', { class: 'row wrap', style: 'margin-top:10px' }, amt, why,
+      !CAN('users_edit') ? null : el('div', { class: 'row wrap', style: 'margin-top:10px' }, amt, why,
         el('button', { class: 'btn sm primary', type: 'button', onclick: () => { const n = parseInt(amt.value, 10); if (!n) { toast('Scrivi quanti crediti'); return; } act({ op: 'gift', amount: n, note: why.value }, n > 0 ? 'Crediti regalati' : 'Crediti tolti'); } }, 'Regala crediti')),
-      el('div', { class: 'row wrap', style: 'margin-top:8px' }, pl, months,
+      !CAN('users_edit') ? null : el('div', { class: 'row wrap', style: 'margin-top:8px' }, pl, months,
         el('button', { class: 'btn sm', type: 'button', onclick: () => act({ op: 'plan', plan: pl.value, months: +months.value }, 'Piano attivato') }, w.plan !== 'free' ? 'Cambia piano' : 'Attiva piano'),
         w.plan !== 'free' ? el('button', { class: 'btn sm bad', type: 'button', onclick: () => act({ op: 'cancel' }, 'Piano chiuso') }, 'Chiudi piano') : null),
-      el('p', { class: 'muted', style: 'margin:6px 0 0;font-size:12px' }, 'Attivare un piano da qui è gratis per l\'utente (per prove e regali). Gli acquisti veri arrivano quando colleghiamo i pagamenti.'),
+      !CAN('users_edit') ? null : el('p', { class: 'muted', style: 'margin:6px 0 0;font-size:12px' }, 'Attivare un piano da qui è gratis per l\'utente (per prove e regali). Gli acquisti veri arrivano quando colleghiamo i pagamenti.'),
       (r.ledger || []).length ? el('details', { class: 'box', style: 'margin-top:10px' }, el('summary', null, 'Movimenti (' + r.ledger.length + ')'),
         ...r.ledger.map((l) => el('div', { class: 'ev' }, el('time', null, when(l.created_at)),
           el('span', null, KIND[l.kind] || l.kind, (l.meta && (l.meta.model || l.meta.note)) ? el('small', { class: 'muted' }, ' · ' + (l.meta.model || l.meta.note)) : null),
@@ -434,7 +464,7 @@ async function openUser(id) {
   paint(d);
   function paint(d) {
     const p = d.profile || {}, a = d.admin || {};
-    const note = el('textarea', { class: 'note', placeholder: 'Note private su questo utente (le vedi solo tu)' }); note.value = a.note || '';
+    const note = el('textarea', { class: 'note', placeholder: 'Note private su questo utente (le vede solo il team)' }); note.value = a.note || '';
     const reason = el('input', { class: 'search', style: 'width:100%', placeholder: 'Motivo (lo vede l\'utente)', value: a.blocked_reason || '' });
     const save = async (patch, msg) => {
       try { const nd = await sql('set_user', { id, ...patch }); toast(msg); paint(nd); S.users = null; if (S.view === 'users') load('users', true); }
@@ -461,8 +491,8 @@ async function openUser(id) {
         ...(d.reports || []).map((r) => el('div', { class: 'dev' }, el('button', { class: 'linkish', type: 'button', style: 'text-align:left;font-weight:500', onclick: () => { close(); S.rsel = r.id; S.rtab = 'all'; go('reports'); } }, r.text || '(senza testo)'), statusPill(r.status))),
         (d.reports || []).length ? null : el('p', { class: 'muted' }, 'Nessuna')),
       creditsBox(id),
-      el('section', null, el('h3', null, 'Note'), note, el('div', { class: 'row', style: 'margin-top:8px' }, el('button', { class: 'btn sm', type: 'button', onclick: () => save({ note: note.value }, 'Nota salvata') }, 'Salva nota'))),
-      el('section', { class: 'blockbox' }, el('h3', { style: 'margin:0' }, a.blocked ? 'Account bloccato' : 'Blocca l\'account'),
+      !CAN('users_edit') ? null : el('section', null, el('h3', null, 'Note'), note, el('div', { class: 'row', style: 'margin-top:8px' }, el('button', { class: 'btn sm', type: 'button', onclick: () => save({ note: note.value }, 'Nota salvata') }, 'Salva nota'))),
+      !CAN('users_edit') ? null : el('section', { class: 'blockbox' }, el('h3', { style: 'margin:0' }, a.blocked ? 'Account bloccato' : 'Blocca l\'account'),
         el('p', { class: 'muted', style: 'margin:0' }, a.blocked ? 'Dal ' + full(a.blocked_at) + '. Sbloccandolo può tornare a usare NoonFrame al prossimo controllo.' : 'Al prossimo controllo (entro 30 minuti, o subito all\'apertura) l\'app mostra "Account sospeso" e non si può usare.'),
         a.blocked ? null : reason,
         el('div', { class: 'row' }, a.blocked
@@ -487,7 +517,7 @@ function renderReports(main) {
   const listEl = el('div', { class: 'list' });
   const det = el('section', { class: 'detail' });
   const split = el('div', { class: 'body split' + (S.rsel ? ' open' : '') }, el('aside', { class: 'side' }, el('div', { class: 'filters' }, q), listEl), det);
-  rc(main, head('Segnalazioni', seg, el('button', { class: 'btn primary', type: 'button', onclick: newRequest }, '＋ Nuova richiesta')), S.err ? el('div', { class: 'err' }, S.err) : null, split);
+  rc(main, head('Segnalazioni', seg, CAN('reports_decide') ? el('button', { class: 'btn primary', type: 'button', onclick: newRequest }, '＋ Nuova richiesta') : null), S.err ? el('div', { class: 'err' }, S.err) : null, split);
   const visible = () => { const t = S.rq.trim().toLowerCase(); return list.filter((r) => inTab(r, S.rtab) && (!t || ((r.text || '') + ' ' + (r.who || '') + ' ' + (r.email || '')).toLowerCase().includes(t))); };
   function paintList() {
     if (!S.reports) { rc(listEl, el('div', { class: 'loading' }, 'Caricamento…')); return; }
@@ -540,13 +570,14 @@ function renderReports(main) {
         r.done_note ? el('div', { class: 'box done' }, el('h3', null, r.done_version ? 'Fatto nella ' + r.done_version : 'Cosa è stato fatto'), el('p', null, r.done_note)) : null,
         (r.errors || []).length ? el('details', { class: 'box' }, el('summary', null, 'Errori (' + r.errors.length + ')'), el('pre', null, r.errors.join('\n\n'))) : null,
         r.log ? el('details', { class: 'box' }, el('summary', null, 'Log'), el('pre', null, r.log.split('\n').filter((l) => !/^\[(http|media)\]/.test(l)).slice(-80).join('\n'))) : null),
+      !CAN('reports_decide') ? (CAN('tasks') ? el('div', { class: 'act' }, el('div', { class: 'act-in' }, el('div', { class: 'row' }, taskFromReport(r)))) : null) :
       el('div', { class: 'act' }, el('div', { class: 'act-in' }, note, el('div', { class: 'row' },
         st === 'fatta' || st === 'chiusa'
           ? el('button', { class: 'btn', type: 'button', onclick: () => decide('approvata') }, 'Riapri con la nota')
           : [el('button', { class: 'btn good', type: 'button', onclick: () => decide('approvata') }, st === 'nuova' ? 'Approva' : 'Aggiorna la nota', el('kbd', null, 'A')),
              st !== 'rifiutata' ? el('button', { class: 'btn bad', type: 'button', onclick: () => decide('rifiutata') }, 'Rifiuta', el('kbd', null, 'R')) : null,
              st !== 'nuova' ? el('button', { class: 'btn', type: 'button', onclick: () => decide('nuova') }, 'Rimetti da decidere') : null],
-        el('span', { class: 'grow' }),
+        el('span', { class: 'grow' }), CAN('tasks') ? taskFromReport(r) : null,
         el('span', { class: 'act-state' }, st === 'approvata' ? 'Claude la prende al prossimo giro.' : st === 'in_lavorazione' ? 'Claude ci sta lavorando.' : st === 'rifiutata' ? 'Non verrà fatta.' : '')))));
   }
   RENDER_DETAIL = paintDetail; LIST_ROWS = visible;
@@ -577,13 +608,410 @@ document.addEventListener('keydown', (e) => {
   const rows = LIST_ROWS ? LIST_ROWS() : []; const i = rows.findIndex((r) => r.id === S.rsel);
   if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); if (rows[i + 1]) { S.rsel = rows[i + 1].id; renderReports($('#main')); } }
   else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); if (i > 0) { S.rsel = rows[i - 1].id; renderReports($('#main')); } }
-  else if ((e.key === 'a' || e.key === 'r') && i >= 0 && !['fatta', 'chiusa'].includes(rows[i].status)) { const b = [...document.querySelectorAll('.act .btn')].find((x) => x.textContent.startsWith(e.key === 'a' ? 'Approva' : 'Rifiuta')); if (b) b.click(); }
+  else if ((e.key === 'a' || e.key === 'r') && CAN('reports_decide') && i >= 0 && !['fatta', 'chiusa'].includes(rows[i].status)) { const b = [...document.querySelectorAll('.act .btn')].find((x) => x.textContent.startsWith(e.key === 'a' ? 'Approva' : 'Rifiuta')); if (b) b.click(); }
 });
+
+// ------------------------------------------------------------------ lancio: numeri dei primi giorni contro gli obiettivi
+const GOALS = [
+  ['downloads', 'Download', 'n'], ['accounts', 'Account creati', 'n'], ['activation', 'Attivazione', '%'],
+  ['d7', 'Tornano dopo 7 giorni', '%'], ['wau', 'Attivi in una settimana', 'n'], ['paid', 'Abbonati', 'n'],
+];
+const ST_LABEL = { early: 'Appena iniziato', ok: 'In linea', warn: 'Un po\' indietro', bad: 'Indietro', few: 'Pochi dati', done: 'Raggiunto', wait: 'Non ancora iniziato' };
+const shortDay = (d) => new Date(d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+function renderLaunch(main) {
+  const L = S.launch;
+  const body = el('div', { class: 'body' });
+  rc(main, head('Lancio', L ? el('button', { class: 'btn', type: 'button', onclick: () => launchGoals(main) }, 'Obiettivi e data') : null), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  if (!L) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const t = L.targets || {};
+  const started = L.day_n > 0, dayN = Math.min(L.day_n, L.days), frac = Math.max(dayN, 1) / L.days, daysLeft = Math.max(1, L.days - dayN);
+  const dl = (L.dl.win || 0) + (L.dl.mac || 0);
+  const end = new Date(new Date(L.date).getTime() + (L.days - 1) * 864e5);
+  // conteggi: confronto con il ritmo che serve oggi per arrivare all'obiettivo alla fine
+  const pace = (v, target) => {
+    if (!target) return { st: null };
+    if (!started) return { st: 'wait' };
+    if (v >= target) return { st: 'done', hint: 'Obiettivo raggiunto' };
+    if (dayN < 3) return { st: 'early', hint: 'Il ritmo si vede dal terzo giorno', expected: target * frac };
+    const r = v / (target * frac);
+    return { st: r >= 0.95 ? 'ok' : r >= 0.6 ? 'warn' : 'bad', hint: 'Servono circa ' + num(Math.ceil((target - v) / daysLeft)) + ' al giorno', expected: target * frac };
+  };
+  const rate = (x, target) => {
+    const pct = x.of ? Math.round(x.ok / x.of * 100) : null;
+    if (!started) return { pct, st: 'wait' };
+    if (x.of < 10) return { pct, st: 'few', hint: x.of ? 'Diventa affidabile da 10 persone (ora ' + x.of + ')' : 'Ancora nessuno da misurare' };
+    return { pct, st: pct >= target ? 'ok' : pct >= target * 0.7 ? 'warn' : 'bad', hint: x.ok + ' su ' + x.of };
+  };
+  const card = (label, value, unit, target, p, detail) => {
+    const pctOfGoal = target ? Math.min(100, (unit === '%' ? (value || 0) : value) / target * 100) : 0;
+    return el('div', { class: 'goal ' + (p.st || '') },
+      el('div', { class: 'goal-top' }, el('span', null, label), p.st ? el('span', { class: 'gst ' + p.st }, ST_LABEL[p.st]) : null),
+      el('b', { class: 'goal-v' }, value == null ? '—' : num(value) + (unit === '%' ? '%' : '')),
+      el('div', { class: 'goal-bar', role: 'img', 'aria-label': Math.round(pctOfGoal) + '% dell\'obiettivo' }, el('i', { style: 'width:' + pctOfGoal + '%' }),
+        p.expected && unit !== '%' ? el('span', { class: 'tick', style: 'left:' + Math.min(100, p.expected / target * 100) + '%', title: 'Dove dovresti essere oggi' }) : null),
+      el('div', { class: 'goal-foot' }, el('span', null, 'Obiettivo ' + num(target) + (unit === '%' ? '%' : '')), el('span', null, p.hint || '')),
+      detail ? el('small', { class: 'goal-d' }, detail) : null);
+  };
+  const act = rate(L.activation, t.activation || 0), ret = rate(L.d7, t.d7 || 0);
+  const steps = [['Download', dl], ['Account creati', L.accounts], ['Hanno esportato un video', L.activation.ok], ['Abbonati', L.paid]];
+  rc(body, el('div', { class: 'ov' },
+    el('div', { class: 'lhead' },
+      el('div', null, el('b', null, started ? 'Giorno ' + dayN + ' di ' + L.days : 'Il lancio parte il ' + shortDay(L.date)),
+        el('span', { class: 'muted' }, ' · dal ' + shortDay(L.date) + ' al ' + shortDay(end))),
+      el('div', { class: 'lprog' }, el('i', { style: 'width:' + (started ? dayN / L.days * 100 : 0) + '%' }))),
+    el('div', { class: 'goals' },
+      card('Download', dl, 'n', t.downloads, pace(dl, t.downloads), 'Windows ' + num(L.dl.win) + ' · Mac ' + num(L.dl.mac)),
+      card('Account creati', L.accounts, 'n', t.accounts, pace(L.accounts, t.accounts), dl ? Math.round(L.accounts / dl * 100) + '% di chi scarica crea l\'account' : null),
+      card('Attivazione', act.pct, '%', t.activation, act, 'Nuovi account che esportano un video nella prima settimana'),
+      card('Tornano dopo 7 giorni', ret.pct, '%', t.d7, ret, 'Riaprono l\'app almeno una settimana dopo l\'iscrizione'),
+      card('Attivi in una settimana', L.wau, 'n', t.wau, pace(L.wau, t.wau), 'Persone che hanno usato l\'app negli ultimi 7 giorni'),
+      card('Abbonati', L.paid, 'n', t.paid, pace(L.paid, t.paid), L.mrr ? 'Circa ' + eur(L.mrr) + ' al mese (IVA inclusa)' : 'I pagamenti non sono ancora attivi')),
+    el('div', { class: 'cards' },
+      el('div', { class: 'card chart' }, el('h2', null, 'Giorno per giorno',
+        el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:var(--c2)' }), 'Download'), el('span', null, el('i', { style: 'background:var(--c1)' }), 'Account'), el('span', null, el('i', { style: 'background:var(--ok)' }), 'Attivi'))),
+        launchChart(L)),
+      el('div', { class: 'card' }, el('h2', null, 'Dal download all\'abbonamento'), funnel(steps))),
+    el('div', { class: 'cards' },
+      el('div', { class: 'card' }, el('h2', null, 'Segnalazioni dal lancio'), el('div', { class: 'minis' },
+        el('div', null, el('b', null, num(L.reports.all)), el('span', null, 'ricevute')), el('div', null, el('b', null, num(L.reports.bugs)), el('span', null, 'bug')),
+        el('div', null, el('b', { class: L.reports.open ? 'warn' : '' }, num(L.reports.open)), el('span', null, 'aperte')), el('div', null, el('b', null, num(L.reports.done)), el('span', null, 'risolte')))),
+      el('div', { class: 'card' }, el('h2', null, 'Nuovi computer per sistema'), barList(Object.entries(L.platforms || {}).map(([k, v]) => [PLAT[k] || k, v])))),
+    el('p', { class: 'muted fine' }, 'I download arrivano da GitHub ogni ora' + (L.dl.checked ? ' (ultimo controllo ' + when(L.dl.checked) + ')' : '') + '. '
+      + (L.dl.has_base ? '' : 'Prima del lancio non c\'era un conteggio, quindi includono anche i ' + num(L.dl.all_time) + ' download di prova fatti finora. ')
+      + 'Non raccogliamo niente di chi visita il sito.')));
+}
+function funnel(steps) {
+  const top = Math.max(1, steps[0][1]);
+  return el('div', { class: 'funnel' }, ...steps.map(([label, n], i) => el('div', { class: 'fn-r' },
+    el('div', { class: 'fn-l' }, el('span', null, label), el('b', null, num(n)),
+      i ? el('small', null, steps[i - 1][1] ? Math.round(n / steps[i - 1][1] * 100) + '% del passo prima' : '—') : null),
+    el('span', { class: 'fn-t' }, el('i', { style: 'width:' + Math.max(1.5, n / top * 100) + '%' })))));
+}
+function launchChart(L) {
+  const W = 600, H = 200, P = { l: 28, r: 8, t: 10, b: 22 };
+  const s = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Download, account e utenti attivi per giorno' });
+  const byDay = Object.fromEntries((L.series || []).map((d) => [String(d.d).slice(0, 10), d]));
+  const days = [...Array(L.days)].map((_, i) => { const d = new Date(new Date(L.date).getTime() + i * 864e5).toISOString().slice(0, 10); return byDay[d] || { d, dl: null, accounts: 0, active: 0, future: true }; });
+  const max = Math.max(1, ...days.map((d) => Math.max(d.dl || 0, d.accounts || 0, d.active || 0)));
+  const nice = max <= 4 ? 4 : Math.ceil(max / 4) * 4;
+  const step = (W - P.l - P.r) / days.length;
+  const x = (i) => P.l + (i + 0.5) * step, y = (v) => H - P.b - v / nice * (H - P.t - P.b);
+  for (let k = 0; k <= 4; k++) {
+    const v = nice * k / 4, yy = y(v);
+    s.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(160,180,220,.1)' }));
+    const tx = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#6F7A8E', 'font-size': 10 }); tx.textContent = Math.round(v); s.append(tx);
+  }
+  const bw = Math.max(1.5, step * 0.34);
+  days.forEach((d, i) => {
+    if (d.future) s.append(svgEl('rect', { x: x(i) - step / 2, y: P.t, width: step, height: H - P.t - P.b, fill: 'rgba(160,180,220,.025)' }));
+    if (d.dl) s.append(svgEl('rect', { x: x(i) - bw - 0.5, y: y(d.dl), width: bw, height: y(0) - y(d.dl), rx: 1.5, fill: '#6EA5FF' }));
+    if (d.accounts) s.append(svgEl('rect', { x: x(i) + 0.5, y: y(d.accounts), width: bw, height: y(0) - y(d.accounts), rx: 1.5, fill: '#1E6BFF' }));
+    if (i % 7 === 0 || (i === days.length - 1 && i % 7 >= 4)) { const tx = svgEl('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', fill: '#6F7A8E', 'font-size': 10 }); tx.textContent = shortDay(d.d); s.append(tx); }
+  });
+  const past = days.filter((d) => !d.future);
+  if (past.length > 1) s.append(svgEl('polyline', { points: past.map((d, i) => x(i) + ',' + y(d.active || 0)).join(' '), fill: 'none', stroke: '#34D399', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+  if (past.length) { const i = past.length - 1; s.append(svgEl('circle', { cx: x(i), cy: y(past[i].active || 0), r: 3.5, fill: '#34D399' })); }
+  return s;
+}
+function launchGoals(main) {
+  const L = S.launch, t = L.targets || {};
+  const date = el('input', { class: 'search', type: 'date', value: String(L.date).slice(0, 10) });
+  const days = el('select', { class: 'search' }, ...[30, 45, 60, 90].map((d) => el('option', { value: String(d), selected: d === L.days }, d + ' giorni')));
+  const inputs = {};
+  const f = (k, label, hint) => { inputs[k] = el('input', { class: 'search', type: 'number', min: '0', step: '1', value: t[k] ?? '' }); return el('label', { class: 'fld' }, el('span', null, label), inputs[k], hint ? el('small', { class: 'muted' }, hint) : null); };
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) bg.remove(); } }, el('div', { class: 'modal shop-modal', role: 'dialog', 'aria-label': 'Obiettivi del lancio' },
+    el('h2', null, 'Obiettivi del lancio'),
+    el('p', { class: 'muted', style: 'margin:0' }, 'Sono gli obiettivi da raggiungere alla fine del periodo. Ogni giorno il pannello ti dice se sei in linea.'),
+    el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Giorno del lancio'), date), el('label', { class: 'fld' }, el('span', null, 'Durata'), days)),
+    el('div', { class: 'fgrid' }, f('downloads', 'Download'), f('accounts', 'Account creati'), f('activation', 'Attivazione %', 'esportano un video'), f('d7', 'Tornano dopo 7 giorni %'), f('wau', 'Attivi in una settimana'), f('paid', 'Abbonati')),
+    el('div', { class: 'row' }, el('span', { class: 'grow' }), el('button', { class: 'btn', type: 'button', onclick: () => bg.remove() }, 'Annulla'),
+      el('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        const targets = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, Math.max(0, +i.value || 0)]));
+        try { S.launch = await sql('launch_save', { date: date.value, days: +days.value, targets }); bg.remove(); toast('Obiettivi salvati'); renderLaunch(main); }
+        catch (x) { e.currentTarget.disabled = false; toast(explain(x)); }
+      } }, 'Salva'))));
+  document.body.append(bg);
+}
+
+// ------------------------------------------------------------------ task del team
+const TST = [['todo', 'Da fare'], ['doing', 'In corso'], ['review', 'Da controllare'], ['done', 'Fatte']];
+const PRIO = [['0', 'Bassa'], ['1', 'Normale'], ['2', 'Alta']];
+const AREAS_DEF = ['Sviluppo', 'Marketing', 'Design', 'Supporto', 'Contenuti'];
+const personName = (email) => { if (!email) return ''; const p = ((S.tasks && S.tasks.people) || []).find((x) => x.email === email); return (p && p.name) || email.split('@')[0]; };
+const initials = (email) => { const n = personName(email); return n.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(); };
+const dueInfo = (due, done) => {
+  if (!due) return null;
+  const d = new Date(due + 'T23:59:59'), days = Math.ceil((d - Date.now()) / 864e5);
+  const late = !done && days < 0, soon = !done && days >= 0 && days <= 1;
+  return { label: days === 0 ? 'Oggi' : days === 1 ? 'Domani' : shortDay(due), cls: late ? 'late' : soon ? 'soon' : '' };
+};
+function myOpenTasks() { return ((S.tasks && S.tasks.tasks) || []).filter((k) => k.assignee === (ME && ME.email) && k.status !== 'done').length; }
+function renderTasks(main) {
+  const T = S.tasks;
+  const seg = el('div', { class: 'seg' }, ...[['all', 'Tutte'], ['mine', 'Mie'], ['none', 'Da assegnare']].map(([k, l]) =>
+    el('button', { type: 'button', 'aria-pressed': String(S.tf === k), onclick: () => { S.tf = k; S.tp = ''; renderTasks(main); } }, l)));
+  const who = el('select', { class: 'search', style: 'width:auto', 'aria-label': 'Filtra per persona' }, el('option', { value: '' }, 'Tutte le persone'),
+    ...((T && T.people) || []).map((p) => el('option', { value: p.email, selected: S.tp === p.email }, p.name || p.email)));
+  who.addEventListener('change', () => { S.tp = who.value; S.tf = 'all'; renderTasks(main); });
+  const body = el('div', { class: 'body board-body' });
+  rc(main, head('Task', seg, who, el('button', { class: 'btn primary', type: 'button', onclick: () => taskModal(null, {}, main) }, '＋ Nuova task')), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  if (!T) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const show = (k) => (S.tf !== 'mine' || k.assignee === ME.email) && (S.tf !== 'none' || !k.assignee) && (!S.tp || k.assignee === S.tp);
+  const tasks = T.tasks.filter(show);
+  const board = el('div', { class: 'board' });
+  for (const [st, label] of TST) {
+    const items = tasks.filter((k) => k.status === st).sort((a, b) => st === 'done' ? String(b.done_at).localeCompare(String(a.done_at)) : a.sort - b.sort);
+    const list = el('div', { class: 'col-list', 'data-st': st });
+    rc(list, ...(items.length ? items.map((k) => taskCard(k, main)) : [el('div', { class: 'col-empty' }, st === 'todo' ? 'Niente da fare. Aggiungi una task.' : st === 'done' ? 'Le task finite restano qui 30 giorni.' : 'Trascina qui una task')]));
+    list.addEventListener('dragover', (e) => { e.preventDefault(); list.classList.add('over'); });
+    list.addEventListener('dragleave', (e) => { if (!list.contains(e.relatedTarget)) list.classList.remove('over'); });
+    list.addEventListener('drop', (e) => { e.preventDefault(); list.classList.remove('over'); dropTask(+e.dataTransfer.getData('text/plain'), st, list, e.clientY, main); });
+    board.append(el('section', { class: 'col ' + st, 'aria-label': label },
+      el('div', { class: 'col-h' }, el('span', { class: 'cdot' }), el('b', null, label), el('i', null, items.length), el('span', { class: 'grow' }),
+        st !== 'done' ? el('button', { class: 'btn sm ghost', type: 'button', title: 'Nuova task in "' + label + '"', 'aria-label': 'Nuova task in ' + label, onclick: () => taskModal(null, { status: st }, main) }, '＋') : null),
+      list));
+  }
+  rc(body, board);
+}
+function taskCard(k, main) {
+  const due = dueInfo(k.due, k.status === 'done');
+  const c = el('button', { class: 'tk' + (k.priority === 2 ? ' hi' : ''), type: 'button', draggable: 'true', 'data-id': k.id, onclick: () => taskModal(k, {}, main) },
+    el('span', { class: 'tk-t' }, k.title),
+    el('span', { class: 'tk-m' },
+      k.priority === 2 ? el('span', { class: 'chip hi' }, 'Alta') : null,
+      k.area ? el('span', { class: 'chip' }, k.area) : null,
+      due ? el('span', { class: 'chip due ' + due.cls }, due.label) : null,
+      k.comments ? el('span', { class: 'chip ghost', title: k.comments + ' commenti' }, '💬 ' + k.comments) : null,
+      k.report_id ? el('span', { class: 'chip ghost', title: 'Collegata a una segnalazione' }, 'Segnalazione') : null,
+      el('span', { class: 'grow' }),
+      k.assignee ? el('span', { class: 'tk-av', title: personName(k.assignee) }, initials(k.assignee)) : el('span', { class: 'tk-av none', title: 'Da assegnare' }, '?')));
+  c.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', String(k.id)); e.dataTransfer.effectAllowed = 'move'; c.classList.add('drag'); });
+  c.addEventListener('dragend', () => c.classList.remove('drag'));
+  return c;
+}
+async function dropTask(id, st, list, y, main) {
+  const k = S.tasks.tasks.find((x) => x.id === id); if (!k) return;
+  // posizione: fra le card sopra e sotto il punto in cui la lasci
+  const cards = [...list.querySelectorAll('.tk')].filter((c) => +c.dataset.id !== id);
+  const after = cards.find((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; });
+  const sortOf = (c) => (S.tasks.tasks.find((x) => x.id === +c.dataset.id) || {}).sort;
+  let sort;
+  if (!cards.length) sort = Date.now() / 1000;
+  else if (!after) sort = sortOf(cards[cards.length - 1]) + 1;
+  else { const i = cards.indexOf(after); sort = i === 0 ? sortOf(after) - 1 : (sortOf(cards[i - 1]) + sortOf(after)) / 2; }
+  if (k.status === st && k.sort === sort) return;
+  const before = { status: k.status, sort: k.sort, done_at: k.done_at };
+  Object.assign(k, { status: st, sort, done_at: st === 'done' ? (k.done_at || new Date().toISOString()) : null });
+  renderTasks(main);
+  try { Object.assign(k, await sql('task_save', { id, status: st, sort })); if (before.status !== st) toast(st === 'done' ? 'Fatta!' : 'Spostata in "' + TST.find((x) => x[0] === st)[1] + '"'); }
+  catch (e) { Object.assign(k, before); toast(explain(e)); }
+  ME.my_tasks = myOpenTasks(); paintMe(); renderTasks(main);
+}
+async function taskModal(k, def, main) {
+  if (!S.tasks) { try { S.tasks = await sql('tasks'); } catch (e) { toast(explain(e)); return; } }
+  const isNew = !k; k = k || { title: '', notes: '', status: 'todo', priority: 1, assignee: null, due: null, area: '', ...def };
+  const title = el('input', { class: 'search tk-title', placeholder: 'Cosa c\'è da fare?', value: k.title, maxlength: '200', 'aria-label': 'Titolo' });
+  const notes = el('textarea', { class: 'note', placeholder: 'Dettagli, link, come capire che è finita…', maxlength: '4000', 'aria-label': 'Dettagli' }); notes.value = k.notes || '';
+  const status = el('select', { class: 'search' }, ...TST.map(([v, l]) => el('option', { value: v, selected: k.status === v }, l)));
+  let prio = String(k.priority ?? 1);
+  const prioSeg = el('div', { class: 'seg' });
+  const paintPrio = () => rc(prioSeg, ...PRIO.map(([v, l]) => el('button', { type: 'button', 'aria-pressed': String(prio === v), onclick: () => { prio = v; paintPrio(); } }, l)));
+  paintPrio();
+  const asg = el('select', { class: 'search' }, el('option', { value: '' }, 'Nessuno'), ...S.tasks.people.map((p) => el('option', { value: p.email, selected: k.assignee === p.email }, (p.name || p.email) + (p.email === ME.email ? ' (tu)' : ''))));
+  const due = el('input', { class: 'search', type: 'date', value: k.due || '' });
+  const areas = [...new Set([...AREAS_DEF, ...(S.tasks.areas || [])])];
+  const area = el('input', { class: 'search', list: 'tk-areas', placeholder: 'es. Marketing', value: k.area || '', maxlength: '30' });
+  const dl = el('datalist', { id: 'tk-areas' }, ...areas.map((a) => el('option', { value: a })));
+  const comments = el('div', { class: 'tk-comments' });
+  const msg = el('textarea', { class: 'note', placeholder: 'Scrivi un commento…', style: 'min-height:56px', maxlength: '2000' });
+  const paintComments = (list) => rc(comments, ...(list.length ? list.map((c) => el('div', { class: 'cm' }, el('span', { class: 'tk-av' }, (c.name || c.author)[0].toUpperCase()),
+    el('div', null, el('div', { class: 'cm-h' }, el('b', null, c.name || c.author.split('@')[0]), el('time', null, when(c.at))), el('p', null, c.text)))) : [el('p', { class: 'muted', style: 'margin:0' }, 'Ancora nessun commento.')]));
+  if (!isNew) { rc(comments, el('p', { class: 'muted' }, 'Caricamento…')); sql('task_comments', { id: k.id }).then(paintComments).catch((e) => rc(comments, el('p', { class: 'gate-err' }, explain(e)))); }
+  const close = () => { bg.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  const canDelete = !isNew && (k.created_by === ME.email || CAN('team'));
+  let armed = false;
+  const delBtn = canDelete ? el('button', { class: 'btn bad', type: 'button', onclick: async (e) => {
+    if (!armed) { armed = true; e.currentTarget.textContent = 'Conferma: elimina'; return; }
+    e.currentTarget.disabled = true;
+    try { await sql('task_archive', { id: k.id }); S.tasks.tasks = S.tasks.tasks.filter((x) => x.id !== k.id); close(); toast('Task eliminata'); ME.my_tasks = myOpenTasks(); paintMe(); if (S.view === 'tasks') renderTasks(main); }
+    catch (x) { e.currentTarget.disabled = false; toast(explain(x)); }
+  } }, 'Elimina') : null;
+  const save = async (e) => {
+    const ti = title.value.trim(); if (!ti) { title.focus(); toast('Scrivi cosa c\'è da fare'); return; }
+    e.currentTarget.disabled = true;
+    const patch = { title: ti, notes: notes.value, status: status.value, priority: +prio, assignee: asg.value || null, due: due.value || null, area: area.value.trim() || null };
+    if (isNew && k.report_id) patch.report_id = k.report_id;
+    try {
+      const r = await sql('task_save', isNew ? patch : { id: k.id, ...patch });
+      if (isNew) S.tasks.tasks.push(r); else Object.assign(S.tasks.tasks.find((x) => x.id === k.id) || {}, r);
+      if (r.area && !S.tasks.areas.includes(r.area)) S.tasks.areas.push(r.area);
+      close(); toast(isNew ? 'Task creata' + (r.assignee && r.assignee !== ME.email ? ' e assegnata a ' + personName(r.assignee) : '') : 'Task salvata');
+      ME.my_tasks = myOpenTasks(); paintMe(); if (S.view === 'tasks') renderTasks(main);
+    } catch (x) { e.currentTarget.disabled = false; toast(explain(x)); }
+  };
+  title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); } });
+  const saveBtn = el('button', { class: 'btn primary', type: 'button', onclick: save }, isNew ? 'Crea task' : 'Salva');
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal tk-modal', role: 'dialog', 'aria-label': isNew ? 'Nuova task' : 'Task' },
+    el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuova task' : 'Task'), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
+    title, notes,
+    el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Stato'), status), el('label', { class: 'fld' }, el('span', null, 'Assegnata a'), asg),
+      el('label', { class: 'fld' }, el('span', null, 'Scadenza'), due), el('label', { class: 'fld' }, el('span', null, 'Area'), area, dl)),
+    el('div', { class: 'fld' }, el('span', null, 'Priorità'), prioSeg),
+    k.report_id ? el('div', { class: 'row' }, el('span', { class: 'muted' }, 'Collegata a una segnalazione'), CAN('reports') ? el('button', { class: 'linkish', type: 'button', onclick: () => { close(); S.rsel = k.report_id; S.rtab = 'all'; go('reports'); } }, 'Apri') : null) : null,
+    isNew ? null : el('details', { class: 'box', open: true }, el('summary', null, 'Commenti'), comments,
+      el('div', { class: 'row', style: 'margin-top:8px' }, msg, el('button', { class: 'btn sm', type: 'button', onclick: async (e) => {
+        const tx = msg.value.trim(); if (!tx) { msg.focus(); return; }
+        e.currentTarget.disabled = true;
+        try { paintComments(await sql('task_comments', { id: k.id, text: tx })); msg.value = ''; const kk = S.tasks.tasks.find((x) => x.id === k.id); if (kk) kk.comments = (kk.comments || 0) + 1; if (S.view === 'tasks') renderTasks(main); }
+        catch (x) { toast(explain(x)); }
+        e.currentTarget.disabled = false;
+      } }, 'Commenta'))),
+    isNew ? null : el('p', { class: 'muted', style: 'margin:0;font-size:12px' }, 'Creata da ' + personName(k.created_by) + ' ' + when(k.created_at) + (k.updated_at !== k.created_at ? ' · modificata ' + when(k.updated_at) : '')),
+    el('div', { class: 'row' }, delBtn, el('span', { class: 'grow' }), el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'), saveBtn)));
+  document.body.append(bg);
+  if (isNew) setTimeout(() => title.focus(), 30);
+}
+function taskFromReport(r) {
+  return el('button', { class: 'btn', type: 'button', onclick: () => taskModal(null, { title: (r.text || 'Segnalazione').replace(/\s+/g, ' ').slice(0, 120), notes: 'Dalla segnalazione di ' + (r.who || 'un utente') + ':\n\n' + (r.text || ''), report_id: r.id, area: r.kind === 'bug' ? 'Sviluppo' : '' }, $('#main')) }, 'Crea task');
+}
+
+// ------------------------------------------------------------------ team e permessi
+const PERMS = [
+  ['launch', 'Lancio e numeri', 'Download, iscritti e obiettivi del lancio'],
+  ['tasks', 'Task', 'Vedere, creare e spostare le task del team'],
+  ['reports', 'Vedere le segnalazioni', 'Bug e idee degli utenti, con screenshot ed email di chi scrive'],
+  ['reports_decide', 'Decidere le segnalazioni', 'Approvare, rifiutare e mandare richieste a Claude', 'reports'],
+  ['users', 'Vedere gli utenti', 'Email, dispositivi e uso dell\'app: sono dati personali'],
+  ['users_edit', 'Gestire gli utenti', 'Bloccare account, scrivere note, regalare crediti e piani', 'users'],
+  ['shop', 'Prezzi e offerte', 'Piani, ricariche e offerte lampo che vedono gli utenti'],
+  ['beta', 'Beta tester', 'Chi può provare le versioni nuove'],
+  ['team', 'Team e permessi', 'Aggiungere persone e vedere il registro delle azioni'],
+];
+const ROLES = [
+  ['admin', 'Admin', 'Tutto', PERMS.map((p) => p[0])],
+  ['supporto', 'Supporto', 'Utenti e segnalazioni', ['launch', 'tasks', 'reports', 'reports_decide', 'users', 'users_edit']],
+  ['sviluppo', 'Sviluppo', 'Segnalazioni e beta', ['launch', 'tasks', 'reports', 'reports_decide', 'beta']],
+  ['marketing', 'Marketing', 'Numeri, prezzi e offerte', ['launch', 'tasks', 'shop']],
+  ['lettura', 'Solo lettura', 'Numeri e task', ['launch', 'tasks']],
+];
+const permName = (k) => (PERMS.find((p) => p[0] === k) || [k, k])[1];
+function memberState(m) {
+  if (m.role === 'owner') return ['done', 'Proprietario'];
+  if (!m.active) return ['bad', 'Accesso sospeso'];
+  if (!m.has_account) return ['new', 'Non è ancora entrato'];
+  if (!m.has_mfa) return ['new', 'Deve attivare il codice'];
+  return ['done', 'Attivo'];
+}
+function renderTeam(main) {
+  const body = el('div', { class: 'body shop-body' });
+  rc(main, head('Team e permessi', el('button', { class: 'btn primary', type: 'button', onclick: () => memberModal(null, main) }, '＋ Aggiungi persona')), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  if (!S.team) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  rc(body,
+    el('div', { class: 'box', style: 'margin:0 0 16px' }, el('p', null, 'Ognuno entra su ', el('b', null, location.host), ' con il proprio account Google e un codice a 6 cifre dall\'app di autenticazione. Vede solo le sezioni che gli permetti: anche se provasse ad aprirne altre, il server rifiuta.')),
+    el('div', { class: 'members' }, ...S.team.map((m) => {
+      const [cls, st] = memberState(m);
+      const all = m.role === 'owner' || PERMS.every((p) => m.perms.includes(p[0]));
+      return el('button', { class: 'member', type: 'button', onclick: () => memberModal(m, main) },
+        el('span', { class: 'av' }, (m.name || m.email)[0].toUpperCase()),
+        el('span', { class: 'mb-who' }, el('b', null, m.name || m.email.split('@')[0], m.email === ME.email ? el('small', { class: 'muted' }, ' (tu)') : null), el('small', null, m.email)),
+        el('span', { class: 'mb-role' }, el('b', null, ROLE_NAME[m.role] || m.role), el('small', null, all ? 'Può fare tutto' : m.perms.length ? m.perms.map(permName).join(', ') : 'Nessun permesso')),
+        el('span', { class: 'mb-st' }, el('span', { class: 'pill ' + cls }, st), el('small', { class: 'muted' }, m.last_seen ? 'Visto ' + when(m.last_seen) : 'Mai entrato')),
+        el('span', { class: 'mb-t muted' }, m.open_tasks ? m.open_tasks + (m.open_tasks === 1 ? ' task aperta' : ' task aperte') : ''));
+    })),
+    el('section', { class: 'card', style: 'margin-top:18px' }, el('h2', null, 'Registro delle azioni'),
+      el('p', { class: 'muted', style: 'margin:-6px 0 10px;font-size:12.5px' }, 'Chi ha cambiato cosa nel pannello. Non si può modificare né cancellare.'),
+      (S.audit || []).length ? el('div', { class: 'audit' }, ...S.audit.map((a) => el('div', { class: 'au' }, el('time', { title: full(a.at) }, when(a.at)), el('b', null, a.name || a.actor.split('@')[0]), el('span', null, auditText(a)))))
+        : el('p', { class: 'muted', style: 'margin:0' }, 'Ancora niente.')));
+}
+function auditText(a) {
+  const d = a.detail || {};
+  const ST = { approvata: 'approvata', rifiutata: 'rifiutata', nuova: 'da decidere', fatta: 'fatta', chiusa: 'chiusa' };
+  switch (a.fn) {
+    case 'set_user': return d.blocked === true ? 'ha bloccato un utente' : d.blocked === false ? 'ha sbloccato un utente' : 'ha scritto una nota su un utente';
+    case 'set_report': return 'ha segnato una segnalazione come ' + (ST[d.status] || d.status || '—');
+    case 'create_request': return 'ha mandato una richiesta a Claude';
+    case 'beta_set': return 'ha cambiato i beta tester' + (d.email ? ' (' + d.email + ')' : '');
+    case 'team_save': return 'ha aggiornato ' + (d.email || 'una persona') + (d.perms ? ': ' + (d.perms.length ? d.perms.map(permName).join(', ') : 'nessun permesso') : '');
+    case 'team_remove': return 'ha tolto ' + (d.email || 'una persona') + ' dal team';
+    case 'launch_save': return 'ha cambiato gli obiettivi del lancio';
+    case 'task_archive': return 'ha eliminato una task';
+    case 'credits': return d.op === 'gift' ? (d.amount < 0 ? 'ha tolto ' + num(-d.amount) + ' crediti a un utente' : 'ha regalato ' + num(d.amount) + ' crediti a un utente') : d.op === 'plan' ? 'ha attivato il piano ' + (d.plan || '') + ' a un utente' : d.op === 'cancel' ? 'ha chiuso il piano di un utente' : 'ha cambiato i crediti di un utente';
+    case 'catalog': return d.op === 'stop_offer' ? 'ha fermato un\'offerta' : d.op === 'save_offer' ? 'ha salvato un\'offerta' : d.op === 'save_plan' ? 'ha modificato un piano' : d.op === 'save_pack' ? 'ha modificato una ricarica' : 'ha modificato il listino';
+    default: return a.fn;
+  }
+}
+function memberModal(m, main) {
+  const isNew = !m, owner = m && m.role === 'owner', self = m && m.email === ME.email;
+  m = m || { email: '', name: '', role: 'lettura', perms: ROLES.find((r) => r[0] === 'lettura')[3], active: true };
+  const email = el('input', { class: 'search', type: 'email', placeholder: 'nome@gmail.com', value: m.email, disabled: !isNew, autocomplete: 'off', 'aria-label': 'Email' });
+  const name = el('input', { class: 'search', placeholder: 'Nome', value: m.name || '', maxlength: '60', 'aria-label': 'Nome' });
+  let role = m.role, perms = new Set(m.perms);
+  const locked = (k) => owner || self || (ME.role !== 'owner' && !CAN(k));
+  const roleBox = el('div', { class: 'roles' }), permBox = el('div', { class: 'perms' });
+  const paint = () => {
+    rc(roleBox, ...ROLES.map(([k, l, d, ps]) => el('button', { type: 'button', class: 'role', 'aria-pressed': String(role === k), disabled: owner || self || (ME.role !== 'owner' && !ps.every(CAN)),
+      onclick: () => { role = k; perms = new Set(ps); paint(); } }, el('b', null, l), el('small', null, d))),
+      el('button', { type: 'button', class: 'role', 'aria-pressed': String(role === 'custom'), disabled: owner || self, onclick: () => { role = 'custom'; paint(); } }, el('b', null, 'Personalizzato'), el('small', null, 'Scegli tu')));
+    rc(permBox, ...PERMS.map(([k, l, d, needs]) => {
+      const on = owner || perms.has(k);
+      const cb = el('input', { type: 'checkbox', checked: on, disabled: locked(k) || (needs && !perms.has(needs) && !owner) });
+      cb.addEventListener('change', () => {
+        if (cb.checked) perms.add(k); else { perms.delete(k); PERMS.filter((p) => p[3] === k).forEach((p) => perms.delete(p[0])); }
+        const match = ROLES.find((r) => r[3].length === perms.size && r[3].every((x) => perms.has(x)));
+        role = match ? match[0] : 'custom'; paint();
+      });
+      return el('label', { class: 'perm' + (needs ? ' sub' : '') }, cb, el('span', null, el('b', null, l), el('small', null, d)));
+    }));
+  };
+  paint();
+  const active = el('input', { type: 'checkbox', checked: m.active !== false, disabled: owner || self });
+  const close = () => { bg.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  let armed = false;
+  const save = async (e) => {
+    const em = email.value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { toast('Email non valida'); email.focus(); return; }
+    if (isNew && S.team.some((x) => x.email === em)) { toast('È già nel team'); return; }
+    e.currentTarget.disabled = true;
+    try {
+      S.team = await sql('team_save', { email: em, name: name.value.trim(), role, perms: [...perms], active: active.checked });
+      S.audit = await sql('audit', { limit: 120 });
+      close(); renderTeam(main);
+      toast(isNew ? 'Aggiunto. Mandagli il link: ' + location.host : 'Salvato');
+    } catch (x) { e.currentTarget.disabled = false; toast(explain(x)); }
+  };
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal', role: 'dialog', 'aria-label': isNew ? 'Aggiungi persona' : 'Persona del team' },
+    el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Aggiungi una persona' : (m.name || m.email)), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
+    el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Email Google'), email), el('label', { class: 'fld' }, el('span', null, 'Nome'), name)),
+    owner ? el('p', { class: 'muted', style: 'margin:0' }, 'Il proprietario può fare tutto e non si può togliere.') : self ? el('p', { class: 'muted', style: 'margin:0' }, 'Non puoi cambiare i tuoi permessi: chiedi al proprietario.') : null,
+    owner ? null : el('div', { class: 'fld' }, el('span', null, 'Ruolo'), roleBox),
+    owner ? null : el('div', { class: 'fld' }, el('span', null, 'Cosa può fare'), permBox),
+    owner ? null : el('label', { class: 'chk' }, active, 'Può entrare nel pannello'),
+    isNew ? el('p', { class: 'muted', style: 'margin:0;font-size:12.5px' }, 'Dopo il salvataggio mandagli il link ' + location.host + ': entra con Google usando questa email e attiva il codice a 6 cifre.') : null,
+    el('div', { class: 'row' },
+      !isNew && !owner && !self ? el('button', { class: 'btn bad', type: 'button', onclick: async (e) => {
+        if (!armed) { armed = true; e.currentTarget.textContent = 'Conferma: togli dal team'; return; }
+        e.currentTarget.disabled = true;
+        try { S.team = await sql('team_remove', { email: m.email }); S.audit = await sql('audit', { limit: 120 }); close(); renderTeam(main); toast('Tolto dal team'); }
+        catch (x) { e.currentTarget.disabled = false; toast(explain(x)); }
+      } }, 'Togli dal team') : null,
+      el('span', { class: 'grow' }), el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'),
+      (owner && ME.role !== 'owner') || (self && !owner) ? null : el('button', { class: 'btn primary', type: 'button', onclick: save }, isNew ? 'Aggiungi' : 'Salva'))));
+  document.body.append(bg);
+  if (isNew) setTimeout(() => email.focus(), 30);
+}
 
 // ------------------------------------------------------------------ avvio
 let startView = 'overview';
 try { startView = localStorage.getItem('nuvora.admin.view') || 'overview'; } catch (e) { /* */ }
-go(['overview', 'users', 'reports', 'beta', 'shop'].includes(startView) ? startView : 'overview');
+S.view = startView;
 // ------------------------------------------------------------------ accesso: Google + codice dell'app di autenticazione (2 passaggi)
 let poll = null;
 function screen(...kids) {
@@ -605,9 +1033,18 @@ async function gate(note) {
   if (poll) { clearInterval(poll); poll = null; }
   const { data: { session } } = await sb.auth.getSession();
   if (!session) {
-    screen(el('h1', null, 'Accedi'), el('p', { class: 'muted' }, 'Solo per l\'amministratore.'),
+    screen(el('h1', null, 'Accedi'), el('p', { class: 'muted' }, 'Per il team di NoonFrame. Entri con Google e un codice a 6 cifre.'),
       note ? el('p', { class: 'gate-err' }, note) : null,
       el('button', { class: 'btn primary', type: 'button', onclick: () => sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/' } }) }, 'Accedi con Google'));
+    return;
+  }
+  // prima del codice: questo account è nel team? (il server risponde solo sì o no)
+  const { data: who, error: werr } = await sb.rpc('admin_whoami');
+  if (werr || !who || !who.ok) {
+    const em = (session.user && session.user.email) || 'questo account';
+    screen(el('h1', null, 'Non sei nel team'), el('p', { class: 'muted' }, werr ? 'Non riesco a controllare l\'accesso. Riprova tra poco.' : em + ' non può entrare. Chiedi al proprietario di aggiungerti in "Team e permessi", poi riprova.'),
+      el('button', { class: 'btn', type: 'button', onclick: () => location.reload() }, 'Riprova'),
+      el('button', { class: 'btn ghost sm', type: 'button', onclick: async () => { await sb.auth.signOut(); gate(); } }, 'Esci e cambia account'));
     return;
   }
   const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -637,10 +1074,13 @@ async function gate(note) {
       enter();
     }));
 }
-function enter() {
+async function enter() {
   READY = true;
+  try { ME = await sql('me'); } catch (e) { if (!READY) return; ME = null; }
+  if (!ME) { screen(el('h1', null, 'Errore'), el('p', { class: 'gate-err' }, 'Non riesco a leggere i tuoi permessi. Riprova tra poco.'), el('button', { class: 'btn', type: 'button', onclick: () => location.reload() }, 'Riprova')); return; }
+  paintMe();
   $('#gate').hidden = true; $('.app').hidden = false;
-  go(S.view);
+  go(allowed(S.view) ? S.view : 'overview');
   load(S.view, true);
   poll = setInterval(() => { if (document.visibilityState === 'visible') load(S.view, true); }, 120000);
 }
