@@ -573,3 +573,11 @@ a.ch:hover { border-color: var(--line2); }
 .nav-h[hidden] { display: none; }
 .nav-i { padding-top: 7px; padding-bottom: 7px; }
 .pp-tbl td:last-child { white-space: nowrap; }
+.ownbox { border: 1px solid var(--line2); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: rgba(47,139,255,.04); }
+.own-h { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.own-h small { color: var(--text3); }
+.roles.three { grid-template-columns: repeat(3, 1fr); }
+.role.send[aria-pressed="true"] { border-color: var(--ok); }
+.own-f { margin: 0; }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+@media (max-width: 640px) { .roles.three { grid-template-columns: 1fr; } }

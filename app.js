@@ -1501,7 +1501,9 @@ function renderTeam(main) {
       return el('button', { class: 'member', type: 'button', onclick: () => memberModal(m, main) },
         el('span', { class: 'av' }, (m.name || m.email)[0].toUpperCase()),
         el('span', { class: 'mb-who' }, el('b', null, m.name || m.email.split('@')[0], m.email === ME.email ? el('small', { class: 'muted' }, ' (tu)') : null), el('small', null, m.email)),
-        el('span', { class: 'mb-role' }, el('b', null, ROLE_NAME[m.role] || m.role), el('small', null, all ? 'Può fare tutto' : m.perms.length ? m.perms.map(permName).join(', ') : 'Nessun permesso')),
+        el('span', { class: 'mb-role' }, el('b', null, ROLE_NAME[m.role] || m.role,
+          m.role === 'owner' || m.perms.includes('creators_send') ? el('span', { class: 'chip ok', style: 'margin-left:6px' }, 'Manda email') : m.perms.includes('creators') ? el('span', { class: 'chip', style: 'margin-left:6px' }, 'Solo assegna') : null),
+          el('small', null, all ? 'Può fare tutto' : m.perms.length ? m.perms.filter((x) => !OWNER_ONLY.includes(x)).map(permName).join(', ') || 'Solo creator' : 'Nessun permesso')),
         el('span', { class: 'mb-st' }, el('span', { class: 'pill ' + cls }, st), el('small', { class: 'muted' }, m.last_seen ? 'Visto ' + when(m.last_seen) : 'Mai entrato')),
         el('span', { class: 'mb-t muted' }, m.open_tasks ? m.open_tasks + (m.open_tasks === 1 ? ' task aperta' : ' task aperte') : ''));
     })),
@@ -1536,12 +1538,22 @@ function memberModal(m, main) {
   const name = el('input', { class: 'search', placeholder: 'Nome', value: m.name || '', maxlength: '60', 'aria-label': 'Nome' });
   let role = m.role, perms = new Set(m.perms);
   const locked = (k) => owner || self || (ME.role !== 'owner' && (!CAN(k) || OWNER_ONLY.includes(k)));
-  const roleBox = el('div', { class: 'roles' }), permBox = el('div', { class: 'perms' });
+  const roleBox = el('div', { class: 'roles' }), permBox = el('div', { class: 'perms' }), ownBox = el('div', { class: 'ownbox' });
   const paint = () => {
     rc(roleBox, ...ROLES.map(([k, l, d, ps]) => el('button', { type: 'button', class: 'role', 'aria-pressed': String(role === k), disabled: owner || self || (ME.role !== 'owner' && !ps.every(CAN)),
-      onclick: () => { role = k; perms = new Set([...ps.filter((x) => ME.role === 'owner' || !OWNER_ONLY.includes(x)), ...(ME.role === 'owner' ? [] : [...perms].filter((x) => OWNER_ONLY.includes(x)))]); paint(); } }, el('b', null, l), el('small', null, d))),
+      onclick: () => { role = k; perms = new Set([...ps.filter((x) => !OWNER_ONLY.includes(x)), ...[...perms].filter((x) => OWNER_ONLY.includes(x))]); paint(); } }, el('b', null, l), el('small', null, d))),
       el('button', { type: 'button', class: 'role', 'aria-pressed': String(role === 'custom'), disabled: owner || self, onclick: () => { role = 'custom'; paint(); } }, el('b', null, 'Personalizzato'), el('small', null, 'Scegli tu')));
-    rc(permBox, ...PERMS.map(([k, l, d, needs]) => {
+    // email ai creator e tab Persone: scelte a parte, le decide solo il proprietario
+    const canOwn = ME.role === 'owner' && !owner && !self;
+    const mail = perms.has('creators_send') ? 'send' : perms.has('creators') ? 'assign' : 'none';
+    const setMail = (v) => { perms.delete('creators'); perms.delete('creators_send'); if (v !== 'none') perms.add('creators'); if (v === 'send') perms.add('creators_send'); paint(); };
+    rc(ownBox,
+      el('div', { class: 'own-h' }, el('b', null, 'Email ai creator'), canOwn ? null : el('small', null, owner ? 'Il proprietario può tutto' : 'Lo decide solo il proprietario')),
+      el('div', { class: 'roles three' }, ...[['none', 'Nessun accesso', 'Non vede Creator ed Email'], ['assign', 'Solo assegnare', 'Mette creator ed email, scrive le bozze e le assegna'], ['send', 'Assegnare e mandare', 'Può anche far partire le email dalla casella ufficiale']].map(([v, l, d]) =>
+        el('button', { type: 'button', class: 'role' + (v === 'send' ? ' send' : ''), 'aria-pressed': String(owner || mail === v), disabled: canOwn ? null : true, onclick: () => setMail(v) }, el('b', null, l), el('small', null, d)))),
+      el('label', { class: 'perm own-f' }, (() => { const cb = el('input', { type: 'checkbox', checked: owner || perms.has('founders'), disabled: canOwn ? null : true }); cb.addEventListener('change', () => { if (cb.checked) perms.add('founders'); else perms.delete('founders'); paint(); }); return cb; })(),
+        el('span', null, el('b', null, 'Founder: vede la tab Persone'), el('small', null, 'I numeri di ogni persona del team: creator trovati, email, risposte e task'))));
+    rc(permBox, ...PERMS.filter(([k]) => !OWNER_ONLY.includes(k)).map(([k, l, d, needs]) => {
       const on = owner || perms.has(k);
       const cb = el('input', { type: 'checkbox', checked: on, disabled: locked(k) || (needs && !perms.has(needs) && !owner) });
       cb.addEventListener('change', () => {
@@ -1575,6 +1587,7 @@ function memberModal(m, main) {
     el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Email Google'), email), el('label', { class: 'fld' }, el('span', null, 'Nome'), name)),
     owner ? el('p', { class: 'muted', style: 'margin:0' }, 'Il proprietario può fare tutto e non si può togliere.') : self ? el('p', { class: 'muted', style: 'margin:0' }, 'Non puoi cambiare i tuoi permessi: chiedi al proprietario.') : null,
     owner ? null : el('div', { class: 'fld' }, el('span', null, 'Ruolo'), roleBox),
+    owner ? null : ownBox,
     owner ? null : el('div', { class: 'fld' }, el('span', null, 'Cosa può fare'), permBox),
     owner ? null : el('label', { class: 'chk' }, active, 'Può entrare nel pannello'),
     isNew ? el('p', { class: 'muted', style: 'margin:0;font-size:12.5px' }, 'Dopo il salvataggio mandagli il link ' + location.host + ': entra con Google usando questa email e attiva il codice a 6 cifre.') : null,
