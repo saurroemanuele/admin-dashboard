@@ -74,11 +74,13 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
   document.querySelectorAll('.nav-i[data-perm]').forEach((b) => { b.hidden = !CAN(b.dataset.perm); });
+  // titoli dei gruppi: spariscono se nel gruppo non c'e' niente da vedere
+  document.querySelectorAll('.nav-h').forEach((hd) => { let x = hd.nextElementSibling, any = false; while (x && x.classList.contains('nav-i')) { if (!x.hidden) any = true; x = x.nextElementSibling; } hd.hidden = !any; });
   const me = $('#me'); if (me && ME) rc(me, el('b', null, ME.name || ME.email), el('small', null, ROLE_NAME[ME.role] || ME.role));
   const sb2 = $('#sbadge'); if (sb2 && ME) { sb2.hidden = !ME.issues; sb2.textContent = ME.issues || ''; sb2.title = 'Servizi che non funzionano'; }
   const tb = $('#tbadge'); if (tb && ME) { tb.hidden = !ME.my_tasks; tb.textContent = ME.my_tasks || ''; tb.title = 'Task assegnate a te'; }
@@ -109,6 +111,7 @@ async function load(view, force) {
     if (view === 'apis' && (force || !S.keys)) S.keys = await loadKeys();
     if (view === 'tasks' && (force || !S.tasks)) S.tasks = await sql('tasks');
     if ((view === 'creators' || view === 'mail') && (force || !S.cr)) S.cr = await sql('creators');
+    if (view === 'people' && (force || !S.ppl)) S.ppl = await sql('people_stats');
     if (view === 'updates' && (force || !S.rel)) S.rel = await sql('releases');
     if (view === 'team' && (force || !S.team)) { [S.team, S.audit] = await Promise.all([sql('team'), sql('audit', { limit: 120 })]); }
     if (force) { ME = { ...ME, ...(await sql('me')) }; paintMe(); }
@@ -130,6 +133,7 @@ function render() {
   if (S.view === 'launch') renderLaunch(main);
   if (S.view === 'tasks') renderTasks(main);
   if (S.view === 'creators') renderCreators(main);
+  if (S.view === 'people') renderPeople(main);
   if (S.view === 'mail') renderMail(main);
   if (S.view === 'team') renderTeam(main);
   if (S.view === 'status') renderStatus(main);
@@ -147,6 +151,7 @@ const SUB = {
   Lancio: 'I numeri del lancio confrontati con gli obiettivi. Non contano le persone del team.',
   Task: 'Le cose da fare del team. Trascina una card per cambiarne lo stato.',
   'Team e permessi': 'Chi può entrare in questo pannello e cosa può fare.',
+  Persone: 'Solo per i founder: quanto lavora ogni persona del team, creator trovati, email, risposte e task.',
   Creator: 'Le email dei creator trovate dal team. Scrivi nome ed email e assegna la bozza da mandare.',
   'Email ai creator': 'Le bozze e l\'invio: ogni creator riceve la sua bozza con il suo nome, dalla casella ufficiale di NoonFrame.',
   Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
@@ -1071,7 +1076,7 @@ function renderCreators(main) {
   S.crf = S.crf || 'all';
   const count = (k) => C.creators.filter(test[k]).length;
   const seg = el('div', { class: 'seg' }, ...F.map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(S.crf === k), onclick: () => { S.crf = k; S.crsel = new Set(); renderCreators(main); } }, l, el('i', { class: 'segn' }, count(k)))));
-  const who = el('select', { class: 'search', style: 'width:auto', 'aria-label': 'Aggiunti da' }, el('option', { value: '' }, 'Aggiunti da tutti'),
+  const who = el('select', { class: 'search', style: 'width:auto', 'aria-label': 'Trovati da' }, el('option', { value: '' }, 'Trovati da tutti'),
     ...C.people.map((p) => el('option', { value: p.email, selected: S.crw === p.email }, p.name || p.email)));
   who.addEventListener('change', () => { S.crw = who.value; paintList(); });
   S.crsel = S.crsel || new Set();
@@ -1111,7 +1116,7 @@ function renderCreators(main) {
     const allCb = el('input', { type: 'checkbox', checked: all, 'aria-label': 'Seleziona tutti' });
     allCb.addEventListener('change', () => { R.forEach((c) => (allCb.checked ? S.crsel.add(c.id) : S.crsel.delete(c.id))); paintList(); });
     rc(list, el('table', { class: 'tbl cr-tbl' },
-      el('thead', null, el('tr', null, el('th', { class: 'ck' }, allCb), el('th', null, 'Creator'), el('th', null, 'Email'), el('th', null, 'Bozza'), el('th', null, 'Stato'), el('th', { class: 'hide-m' }, 'Aggiunto da'), el('th', null, ''))),
+      el('thead', null, el('tr', null, el('th', { class: 'ck' }, allCb), el('th', null, 'Creator'), el('th', null, 'Email'), el('th', null, 'Bozza'), el('th', null, 'Stato'), el('th', { class: 'hide-m' }, 'Trovato da'), el('th', null, ''))),
       el('tbody', null, ...R.map((c) => {
         const cb = el('input', { type: 'checkbox', checked: S.crsel.has(c.id), 'aria-label': 'Seleziona ' + c.name });
         cb.addEventListener('change', () => { if (cb.checked) S.crsel.add(c.id); else S.crsel.delete(c.id); paintBulk(); allCb.checked = R.every((x) => S.crsel.has(x.id)); });
@@ -1122,12 +1127,9 @@ function renderCreators(main) {
           paintList();
         }, { attrs: { disabled: locked ? true : null, class: 'search sm' } });
         const [stl, stc] = CR_ST[c.status] || [c.status, ''];
-        const plat = (CR_PLAT.find((p) => p[0] === c.platform) || [])[1];
-        const lk = safeLink(c.link);
         return el('tr', { class: S.crsel.has(c.id) ? 'sel' : '' },
           el('td', { class: 'ck' }, cb),
-          el('td', null, el('div', { class: 'cr-who' }, el('b', null, c.name),
-            el('small', null, plat || '', plat && c.link ? ' · ' : '', lk ? el('a', { href: lk, target: '_blank', rel: 'noopener noreferrer' }, c.link.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40)) : (c.link || '')))),
+          el('td', null, el('div', { class: 'cr-who' }, el('b', null, c.name), chanChips(c))),
           el('td', { class: 'cr-mail' }, c.email),
           el('td', null, tsel),
           el('td', null, el('span', { class: 'pill ' + stc, title: c.last_error || '' }, stl)),
@@ -1138,23 +1140,64 @@ function renderCreators(main) {
   paintList();
 }
 
+const fmtFol = (n) => { n = +n || 0; return n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace('.', ',').replace(',0', '') + 'M' : n >= 1e3 ? (n / 1e3).toFixed(n >= 1e5 ? 0 : 1).replace('.', ',').replace(',0', '') + 'k' : String(n); };
+// follower scritti come 12500, 12.500, 12,5k, 1.2M
+function parseFol(v) {
+  const t = String(v || '').trim().toLowerCase().replace(/\s/g, ''); if (!t) return null;
+  const m = t.match(/^(\d+(?:[.,]\d+)?)([km]?)$/); if (!m) return NaN;
+  const k = m[2] === 'k' ? 1e3 : m[2] === 'm' ? 1e6 : 1;
+  const num = k > 1 ? parseFloat(m[1].replace(',', '.')) : parseInt(m[1].replace(/[.,]/g, ''), 10);
+  return Math.round(num * k);
+}
+function chanChips(c) {
+  const ch = c.channels && c.channels.length ? c.channels : c.platform || c.link ? [{ platform: c.platform || 'altro', link: c.link }] : [];
+  if (!ch.length) return el('span', { class: 'muted' }, 'Nessun canale');
+  return el('span', { class: 'chs' }, ...ch.map((x) => {
+    const lbl = (CR_PLAT.find((p) => p[0] === x.platform) || [0, 'Altro'])[1], lk = safeLink(x.link);
+    const inner = [el('b', null, lbl), x.followers != null ? el('span', null, fmtFol(x.followers)) : null];
+    return lk ? el('a', { class: 'ch ' + x.platform, href: lk, target: '_blank', rel: 'noopener noreferrer', title: x.link }, ...inner) : el('span', { class: 'ch ' + x.platform, title: x.link || '' }, ...inner);
+  }));
+}
 function creatorModal(c, main) {
-  const isNew = !c; c = c || { name: '', email: '', platform: '', link: '', notes: '', template_id: (S.cr.templates[0] || {}).id || null, status: 'nuovo' };
+  const isNew = !c; c = c || { name: '', email: '', channels: [], template_id: (S.cr.templates[0] || {}).id || null, status: 'nuovo' };
   const name = el('input', { class: 'search', placeholder: 'Nome del creator', value: c.name, maxlength: '120', 'aria-label': 'Nome' });
   const email = el('input', { class: 'search', type: 'email', placeholder: 'email@esempio.com', value: c.email, autocomplete: 'off', 'aria-label': 'Email' });
-  const link = el('input', { class: 'search', placeholder: 'Link al canale (twitch.tv/…, kick.com/…)', value: c.link || '', maxlength: '300', 'aria-label': 'Link' });
-  const plat = el('select', { class: 'search', 'aria-label': 'Piattaforma' }, el('option', { value: '' }, 'Piattaforma'), ...CR_PLAT.map(([v, l]) => el('option', { value: v, selected: c.platform === v }, l)));
-  link.addEventListener('input', () => { const p = platOf(link.value); if (p && !plat.value) plat.value = p; });
+  // canali: una riga per piattaforma, ognuna con link e follower
+  let rows = (c.channels && c.channels.length ? c.channels : c.platform || c.link ? [{ platform: c.platform, link: c.link }] : [{ platform: '', link: '' }]).map((x) => ({ platform: x.platform || '', link: x.link || '', followers: x.followers != null ? String(x.followers) : '' }));
+  const chBox = el('div', { class: 'chbox' });
+  const paintCh = () => {
+    const used = new Set(rows.map((r) => r.platform).filter(Boolean));
+    rc(chBox, ...rows.map((r, i) => {
+      const pl = el('select', { class: 'search', 'aria-label': 'Piattaforma' }, el('option', { value: '' }, 'Piattaforma'),
+        ...CR_PLAT.map(([v, l]) => el('option', { value: v, selected: r.platform === v, disabled: v !== r.platform && used.has(v) && v !== 'altro' ? true : null }, l)));
+      pl.addEventListener('change', () => { r.platform = pl.value; paintCh(); });
+      const lk = el('input', { class: 'search', placeholder: 'Link o nome del canale', value: r.link, maxlength: '300', 'aria-label': 'Link del canale' });
+      lk.addEventListener('input', () => { r.link = lk.value; const p = platOf(lk.value); if (p && !r.platform && !used.has(p)) { r.platform = p; pl.value = p; } });
+      const fo = el('input', { class: 'search', placeholder: 'Follower', value: r.followers, inputmode: 'numeric', 'aria-label': 'Follower' });
+      fo.addEventListener('input', () => { r.followers = fo.value; fo.classList.toggle('bad', Number.isNaN(parseFol(fo.value))); });
+      [lk, fo].forEach((x) => x.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(isNew); } }));
+      return el('div', { class: 'chrow' }, pl, lk, fo,
+        el('button', { class: 'btn sm ghost', type: 'button', 'aria-label': 'Togli questa piattaforma', title: 'Togli', onclick: () => { rows.splice(i, 1); if (!rows.length) rows.push({ platform: '', link: '', followers: '' }); paintCh(); } }, '✕'));
+    }), rows.length < 6 ? el('button', { class: 'linkish', type: 'button', onclick: () => { rows.push({ platform: '', link: '', followers: '' }); paintCh(); chBox.querySelectorAll('.chrow select')[rows.length - 1]?.focus(); } }, '＋ Aggiungi un\'altra piattaforma') : null);
+  };
+  paintCh();
   const tpl = tplSelect(c.template_id, null);
-  const notes = el('textarea', { class: 'note', placeholder: 'Note (follower, quando streamma, chi l\'ha trovato…)', maxlength: '1000', style: 'min-height:60px' }); notes.value = c.notes || '';
   const st = el('select', { class: 'search', 'aria-label': 'Stato', disabled: c.status === 'in_coda' ? true : null },
     ...[['nuovo', 'Da mandare'], ['risposto', 'Ha risposto'], ['no', 'Non contattare']].map(([v, l]) => el('option', { value: v, selected: c.status === v }, l)),
     ['inviata', 'in_coda', 'errore'].includes(c.status) ? el('option', { value: '', selected: true }, CR_ST[c.status][0]) : null);
   const close = () => { bg.remove(); document.removeEventListener('keydown', esc); };
   const esc = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', esc);
-  const save = async (again) => {
-    const patch = { name: name.value.trim(), email: email.value.trim(), link: link.value.trim(), platform: plat.value || platOf(link.value) || null, notes: notes.value, template_id: tpl.value ? +tpl.value : null };
+  async function save(again) {
+    const channels = [];
+    for (const r of rows) {
+      if (!r.platform && !r.link.trim() && !r.followers.trim()) continue;
+      const f = parseFol(r.followers);
+      if (Number.isNaN(f)) { toast('Follower non validi: scrivi un numero, per esempio 12500 o 12,5k'); return; }
+      let link = r.link.trim(); if (link && !/^https?:\/\//i.test(link) && /\.[a-z]{2,}\//i.test(link)) link = 'https://' + link;
+      channels.push({ platform: r.platform || platOf(link) || 'altro', link, followers: f });
+    }
+    const patch = { name: name.value.trim(), email: email.value.trim(), channels, template_id: tpl.value ? +tpl.value : null };
     if (!patch.name) { name.focus(); toast('Scrivi il nome'); return; }
     if (!EMAIL_RE.test(patch.email)) { email.focus(); toast('Email non valida'); return; }
     if (!isNew && st.value) patch.status = st.value;
@@ -1162,23 +1205,23 @@ function creatorModal(c, main) {
       const r = await sql('creator_save', isNew ? patch : { id: c.id, ...patch });
       if (isNew) S.cr.creators.unshift(r); else Object.assign(S.cr.creators.find((x) => x.id === c.id) || {}, r);
       toast(isNew ? r.name + ' aggiunto' : 'Salvato');
-      if (again) { name.value = ''; email.value = ''; link.value = ''; notes.value = ''; plat.value = ''; name.focus(); renderCreators(main); return; }
+      if (again) { name.value = ''; email.value = ''; rows = [{ platform: '', link: '', followers: '' }]; paintCh(); name.focus(); renderCreators(main); return; }
       close(); renderCreators(main);
     } catch (e) { toast(explain(e)); }
-  };
-  [name, email, link].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(isNew); } }));
+  }
+  [name, email].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(isNew); } }));
   let armed = false;
   const del = isNew ? null : el('button', { class: 'btn bad', type: 'button', onclick: async (e) => {
     if (!armed) { armed = true; e.currentTarget.textContent = 'Conferma: elimina'; return; }
     try { await sql('creator_remove', { id: c.id }); S.cr.creators = S.cr.creators.filter((x) => x.id !== c.id); close(); toast('Creator eliminato'); renderCreators(main); } catch (x) { toast(explain(x)); }
   } }, 'Elimina');
-  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal', role: 'dialog', 'aria-label': isNew ? 'Nuovo creator' : 'Creator' },
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal cr-modal', role: 'dialog', 'aria-label': isNew ? 'Nuovo creator' : 'Creator' },
     el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuovo creator' : c.name), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
     el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Nome'), name), el('label', { class: 'fld' }, el('span', null, 'Email'), email)),
-    el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Canale'), link), el('label', { class: 'fld' }, el('span', null, 'Piattaforma'), plat)),
+    el('div', { class: 'fld' }, el('span', null, 'Piattaforme e follower'), chBox),
     el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Bozza da mandare'), tpl), isNew ? el('span') : el('label', { class: 'fld' }, el('span', null, 'Stato'), st)),
-    el('label', { class: 'fld' }, el('span', null, 'Note'), notes),
-    isNew ? el('p', { class: 'muted', style: 'margin:0;font-size:12px' }, 'Invio: salva e passa al prossimo creator.') : el('p', { class: 'muted', style: 'margin:0;font-size:12px' }, 'Aggiunto da ' + crName(c.added_by) + ' ' + when(c.created_at) + (c.sent_at ? ' · mail inviata ' + when(c.sent_at) : '') + (c.last_error ? ' · errore: ' + c.last_error : '')),
+    el('p', { class: 'muted', style: 'margin:0;font-size:12px' }, isNew ? 'Trovato da: ' + crName(ME.email) + ' (preso dal tuo account). Invio: salva e passa al prossimo.'
+      : 'Trovato da ' + crName(c.added_by) + ' ' + when(c.created_at) + (c.sent_at ? ' · mail inviata ' + when(c.sent_at) : '') + (c.last_error ? ' · errore: ' + c.last_error : '')),
     el('div', { class: 'row' }, del, el('span', { class: 'grow' }), el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'),
       isNew ? el('button', { class: 'btn', type: 'button', onclick: () => save(true) }, 'Salva e aggiungi un altro') : null,
       el('button', { class: 'btn primary', type: 'button', onclick: () => save(false) }, isNew ? 'Aggiungi' : 'Salva'))));
@@ -1195,12 +1238,15 @@ function parseCreators(text) {
     const rest = line.replace(m[0], ' ');
     const lk = (rest.match(/https?:\/\/\S+|(?:www\.)?(?:twitch\.tv|kick\.com|tiktok\.com|youtube\.com|instagram\.com)\/\S+/i) || [''])[0].replace(/[,;)]+$/, '');
     const name = rest.replace(lk, ' ').split(/[,;\t|]+/).map((x) => x.trim()).filter(Boolean)[0] || '';
-    out.push({ name: name.replace(/^[-–•*\s]+/, '').slice(0, 120), email: m[0].toLowerCase(), link: lk ? (/^https?:/i.test(lk) ? lk : 'https://' + lk) : '', platform: platOf(lk) });
+    const link = lk ? (/^https?:/i.test(lk) ? lk : 'https://' + lk) : '';
+    const fm = rest.replace(lk, ' ').match(/(?:^|[\s,;|])(\d+(?:[.,]\d+)?\s?[kKmM])(?=$|[\s,;|])/);
+    const fol = fm ? parseFol(fm[1]) : null;
+    out.push({ name: name.replace(/^[-–•*\s]+/, '').replace(fm ? fm[1] : '\u0000', '').trim().slice(0, 120), email: m[0].toLowerCase(), channels: link || fol ? [{ platform: platOf(link) || 'altro', link, followers: Number.isFinite(fol) ? fol : null }] : [] });
   }
   return out;
 }
 function pasteModal(main) {
-  const ta = el('textarea', { class: 'note', style: 'min-height:200px;font-family:var(--mono);font-size:12.5px', placeholder: 'Una riga per creator, per esempio:\nMario Rossi, mario@gmail.com, twitch.tv/mariorossi\nLuca Bianchi; luca.live@outlook.it; https://kick.com/lucab', 'aria-label': 'Lista di creator' });
+  const ta = el('textarea', { class: 'note', style: 'min-height:200px;font-family:var(--mono);font-size:12.5px', placeholder: 'Una riga per creator, per esempio:\nMario Rossi, mario@gmail.com, twitch.tv/mariorossi, 12k\nLuca Bianchi; luca.live@outlook.it; https://kick.com/lucab', 'aria-label': 'Lista di creator' });
   const tpl = tplSelect((S.cr.templates[0] || {}).id || null, null);
   const info = el('p', { class: 'muted', style: 'margin:0' }, 'Incolla da un foglio, da una chat o da note: l\'email in ogni riga si trova da sola.');
   const go2 = el('button', { class: 'btn primary', type: 'button', disabled: true }, 'Importa');
@@ -1214,7 +1260,7 @@ function pasteModal(main) {
   ta.addEventListener('input', upd);
   const close = () => bg.remove();
   go2.addEventListener('click', async () => {
-    const rows = parseCreators(ta.value).filter((x) => !x.bad).map(({ name, email, link, platform }) => ({ name, email, link, platform }));
+    const rows = parseCreators(ta.value).filter((x) => !x.bad).map(({ name, email, channels }) => ({ name, email, channels }));
     go2.disabled = true;
     try {
       const r = await sql('creators_import', { rows, template_id: tpl.value ? +tpl.value : null });
@@ -1355,6 +1401,56 @@ function templateModal(t, main) {
   setTimeout(() => (isNew ? name : text).focus(), 30);
 }
 
+
+// ------------------------------------------------------------------ persone (solo founder): i numeri di ognuno
+function spark(series) {
+  const v = series || [], mx = Math.max(1, ...v), w = 112, hgt = 26, bw = w / Math.max(1, v.length);
+  const svg = svgEl('svg', { width: w, height: hgt, viewBox: `0 0 ${w} ${hgt}`, class: 'spark', role: 'img', 'aria-label': 'Creator trovati negli ultimi 14 giorni: ' + v.join(', ') });
+  v.forEach((n, i) => { const hh = n ? Math.max(2, (n / mx) * (hgt - 2)) : 1; svg.append(svgEl('rect', { x: (i * bw + 1).toFixed(1), y: (hgt - hh).toFixed(1), width: Math.max(1, bw - 2).toFixed(1), height: hh.toFixed(1), rx: 1, class: n ? (i === v.length - 1 ? 'on now' : 'on') : 'off' })); });
+  return svg;
+}
+function renderPeople(main) {
+  const P = S.ppl;
+  const body = el('div', { class: 'body cr-body' });
+  rc(main, head('Persone'), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  if (!P) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const L = P.people || [], sum = (k) => L.reduce((a, x) => a + (+x[k] || 0), 0);
+  const sent = sum('sent'), rep = sum('replied');
+  const kpi = (n, label, sub) => el('div', { class: 'kpi' }, el('b', null, n), el('span', null, label), sub ? el('small', null, sub) : null);
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '—');
+  S.pps = S.pps || 'found_30';
+  const SORT = [['found_30', 'Creator 30 giorni'], ['found_7', 'Creator 7 giorni'], ['replied', 'Risposte'], ['followers', 'Follower'], ['tasks_done_30', 'Task fatte']];
+  const sortSel = el('select', { class: 'search', style: 'width:auto', 'aria-label': 'Ordina per' }, ...SORT.map(([k, l]) => el('option', { value: k, selected: S.pps === k }, 'Ordina: ' + l)));
+  sortSel.addEventListener('change', () => { S.pps = sortSel.value; renderPeople(main); });
+  const rows = L.slice().sort((a, b) => (+b[S.pps] || 0) - (+a[S.pps] || 0));
+  const best = rows[0] && +rows[0][S.pps] ? rows[0].email : null;
+  rc(body,
+    el('div', { class: 'ov-kpis pp-kpis' },
+      kpi(sum('found_today'), 'creator trovati oggi'), kpi(sum('found_7'), 'negli ultimi 7 giorni'), kpi(sum('found_30'), 'negli ultimi 30 giorni', sum('found') + ' in tutto'),
+      kpi(sent, 'email arrivate ai creator'), kpi(rep, 'hanno risposto', pct(rep, sent) + ' delle inviate'), kpi(fmtFol(sum('followers')), 'follower raggiunti')),
+    el('div', { class: 'cr-bar' }, el('h2', { class: 'grow', style: 'margin:0;font-size:15px' }, 'Ognuno'), sortSel),
+    el('div', { class: 'tblwrap' }, el('table', { class: 'tbl pp-tbl' },
+      el('thead', null, el('tr', null, el('th', null, 'Persona'), el('th', null, 'Creator trovati'), el('th', { class: 'hide-m' }, 'Ultimi 14 giorni'), el('th', null, 'Email e risposte'),
+        el('th', { class: 'hide-m' }, 'Follower'), el('th', null, 'Task'), el('th', { class: 'hide-m' }, 'Attività'))),
+      el('tbody', null, ...rows.map((x) => {
+        const plats = Object.entries(x.platforms || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => ((CR_PLAT.find((p) => p[0] === k) || [0, k])[1]) + ' ' + n).join(' · ');
+        return el('tr', { class: x.active === false ? 'off' : '' },
+          el('td', null, el('div', { class: 'pp-who' }, el('b', null, x.name, x.email === best ? el('span', { class: 'chip hi', style: 'margin-left:6px' }, 'Primo') : null),
+            el('small', null, (ROLE_NAME[x.role] || x.role) + (x.active === false ? ' · in pausa' : '') + ' · visto ' + when(x.last_seen)))),
+          el('td', null, el('div', { class: 'pp-n' }, el('b', null, x.found_30), el('small', null, 'in 30 giorni')),
+            el('div', { class: 'pp-sub' }, x.found_today + ' oggi · ' + x.found_7 + ' in 7 giorni · ' + x.found + ' in tutto'), plats ? el('div', { class: 'pp-sub' }, plats) : null),
+          el('td', { class: 'hide-m' }, spark(x.series)),
+          el('td', null, el('div', { class: 'pp-n' }, el('b', null, x.sent), el('small', null, 'inviate')),
+            el('div', { class: 'pp-sub' }, x.replied + ' risposte (' + pct(x.replied, x.sent) + ')' + (x.errors ? ' · ' + x.errors + ' errori' : '') + ' · ' + x.with_tpl + ' con bozza')),
+          el('td', { class: 'hide-m' }, el('div', { class: 'pp-n' }, el('b', null, fmtFol(x.followers)))),
+          el('td', null, el('div', { class: 'pp-n' }, el('b', null, x.tasks_open), el('small', null, 'aperte')),
+            el('div', { class: 'pp-sub' + (x.tasks_late ? ' late' : '') }, (x.tasks_late ? x.tasks_late + ' in ritardo · ' : '') + x.tasks_done_30 + ' fatte in 30 giorni')),
+          el('td', { class: 'hide-m' }, el('div', { class: 'pp-sub' }, x.actions_7 + ' azioni in 7 giorni'), el('div', { class: 'pp-sub' }, 'nel team dal ' + new Date(x.added_at).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }))));
+      })))),
+    el('p', { class: 'muted', style: 'font-size:12px' }, '"Trovato da" è sempre l\'account che ha inserito il creator. I numeri contano i creator ancora in lista.'));
+}
+
 function taskFromReport(r) {
   return el('button', { class: 'btn', type: 'button', onclick: () => taskModal(null, { title: (r.text || 'Segnalazione').replace(/\s+/g, ' ').slice(0, 120), notes: 'Dalla segnalazione di ' + (r.who || 'un utente') + ':\n\n' + (r.text || ''), report_id: r.id, area: r.kind === 'bug' ? 'Sviluppo' : '' }, $('#main')) }, 'Crea task');
 }
@@ -1364,6 +1460,7 @@ const PERMS = [
   ['launch', 'Lancio e numeri', 'Download, iscritti e obiettivi del lancio'],
   ['tasks', 'Task', 'Vedere, creare e spostare le task del team'],
   ['creators', 'Creator: aggiungere e assegnare', 'Mettere nomi ed email dei creator, scrivere le bozze e assegnarle. Lo decide solo il proprietario'],
+  ['founders', 'Founder: numeri del team', 'Vedere quanti creator trova ogni persona, email, risposte e task. Lo decide solo il proprietario'],
   ['creators_send', 'Creator: mandare le email', 'Spedire le email dalla casella ufficiale di NoonFrame. Lo decide solo il proprietario', 'creators'],
   ['reports', 'Vedere le segnalazioni', 'Bug e idee degli utenti, con screenshot ed email di chi scrive'],
   ['reports_decide', 'Decidere le segnalazioni', 'Approvare, rifiutare e mandare richieste a Claude', 'reports'],
@@ -1382,7 +1479,7 @@ const ROLES = [
   ['marketing', 'Marketing', 'Numeri, prezzi, offerte e messaggi', ['launch', 'tasks', 'shop', 'messages']],
   ['lettura', 'Solo lettura', 'Numeri e task', ['launch', 'tasks']],
 ];
-const OWNER_ONLY = ['creators', 'creators_send'];   // chi puo' solo assegnare e chi puo' anche mandare: lo decide solo il proprietario
+const OWNER_ONLY = ['creators', 'creators_send', 'founders'];   // chi puo' solo assegnare e chi puo' anche mandare: lo decide solo il proprietario
 const permName = (k) => (PERMS.find((p) => p[0] === k) || [k, k])[1];
 function memberState(m) {
   if (m.role === 'owner') return ['done', 'Proprietario'];
