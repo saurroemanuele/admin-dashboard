@@ -1502,7 +1502,7 @@ function renderTeam(main) {
         el('span', { class: 'av' }, (m.name || m.email)[0].toUpperCase()),
         el('span', { class: 'mb-who' }, el('b', null, m.name || m.email.split('@')[0], m.email === ME.email ? el('small', { class: 'muted' }, ' (tu)') : null), el('small', null, m.email)),
         el('span', { class: 'mb-role' }, el('b', null, ROLE_NAME[m.role] || m.role,
-          m.role === 'owner' || m.perms.includes('creators_send') ? el('span', { class: 'chip ok', style: 'margin-left:6px' }, 'Manda email') : m.perms.includes('creators') ? el('span', { class: 'chip', style: 'margin-left:6px' }, 'Solo assegna') : null),
+          ME.role !== 'owner' ? null : m.role === 'owner' || m.perms.includes('creators_send') ? el('span', { class: 'chip ok', style: 'margin-left:6px' }, 'Manda email') : m.perms.includes('creators') ? el('span', { class: 'chip', style: 'margin-left:6px' }, 'Solo assegna') : null),
           el('small', null, all ? 'Può fare tutto' : m.perms.length ? m.perms.filter((x) => !OWNER_ONLY.includes(x)).map(permName).join(', ') || 'Solo creator' : 'Nessun permesso')),
         el('span', { class: 'mb-st' }, el('span', { class: 'pill ' + cls }, st), el('small', { class: 'muted' }, m.last_seen ? 'Visto ' + when(m.last_seen) : 'Mai entrato')),
         el('span', { class: 'mb-t muted' }, m.open_tasks ? m.open_tasks + (m.open_tasks === 1 ? ' task aperta' : ' task aperte') : ''));
@@ -1587,7 +1587,7 @@ function memberModal(m, main) {
     el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Email Google'), email), el('label', { class: 'fld' }, el('span', null, 'Nome'), name)),
     owner ? el('p', { class: 'muted', style: 'margin:0' }, 'Il proprietario può fare tutto e non si può togliere.') : self ? el('p', { class: 'muted', style: 'margin:0' }, 'Non puoi cambiare i tuoi permessi: chiedi al proprietario.') : null,
     owner ? null : el('div', { class: 'fld' }, el('span', null, 'Ruolo'), roleBox),
-    owner ? null : ownBox,
+    owner || ME.role !== 'owner' ? null : ownBox,   // solo il proprietario vede (e decide) email ai creator e founder
     owner ? null : el('div', { class: 'fld' }, el('span', null, 'Cosa può fare'), permBox),
     owner ? null : el('label', { class: 'chk' }, active, 'Può entrare nel pannello'),
     isNew ? el('p', { class: 'muted', style: 'margin:0;font-size:12.5px' }, 'Dopo il salvataggio mandagli il link ' + location.host + ': entra con Google usando questa email e attiva il codice a 6 cifre.') : null,
