@@ -74,7 +74,7 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
@@ -108,6 +108,7 @@ async function load(view, force) {
     if (view === 'money' && (force || !S.money)) S.money = await sql('money', { days: S.mdays || 30 });
     if (view === 'apis' && (force || !S.keys)) S.keys = await loadKeys();
     if (view === 'tasks' && (force || !S.tasks)) S.tasks = await sql('tasks');
+    if ((view === 'creators' || view === 'mail') && (force || !S.cr)) S.cr = await sql('creators');
     if (view === 'updates' && (force || !S.rel)) S.rel = await sql('releases');
     if (view === 'team' && (force || !S.team)) { [S.team, S.audit] = await Promise.all([sql('team'), sql('audit', { limit: 120 })]); }
     if (force) { ME = { ...ME, ...(await sql('me')) }; paintMe(); }
@@ -128,6 +129,8 @@ function render() {
   if (S.view === 'shop') renderShop(main);
   if (S.view === 'launch') renderLaunch(main);
   if (S.view === 'tasks') renderTasks(main);
+  if (S.view === 'creators') renderCreators(main);
+  if (S.view === 'mail') renderMail(main);
   if (S.view === 'team') renderTeam(main);
   if (S.view === 'status') renderStatus(main);
   if (S.view === 'messages') renderMessages(main);
@@ -144,6 +147,8 @@ const SUB = {
   Lancio: 'I numeri del lancio confrontati con gli obiettivi. Non contano le persone del team.',
   Task: 'Le cose da fare del team. Trascina una card per cambiarne lo stato.',
   'Team e permessi': 'Chi può entrare in questo pannello e cosa può fare.',
+  Creator: 'Le email dei creator trovate dal team. Scrivi nome ed email e assegna la bozza da mandare.',
+  'Email ai creator': 'Le bozze e l\'invio: ogni creator riceve la sua bozza con il suo nome, dalla casella ufficiale di NoonFrame.',
   Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
   Messaggi: 'Avvisi e novità che arrivano nella campanella dell\'app.',
   Soldi: 'Quanto costano davvero le AI e quanti crediti sono ancora in giro.',
@@ -1030,6 +1035,326 @@ async function taskModal(k, def, main) {
   document.body.append(bg);
   if (isNew) setTimeout(() => title.focus(), 30);
 }
+// ------------------------------------------------------------------ creator: email trovate dal team, bozze e invio
+const CR_PLAT = [['twitch', 'Twitch'], ['kick', 'Kick'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['instagram', 'Instagram'], ['altro', 'Altro']];
+const CR_ST = { nuovo: ['Da mandare', ''], in_coda: ['In coda', 'wait'], inviata: ['Inviata', 'done'], risposto: ['Ha risposto', 'done'], errore: ['Errore', 'bad'], no: ['Non contattare', 'no'] };
+const crName = (e) => { const p = ((S.cr && S.cr.people) || []).find((x) => x.email === e); return p ? (p.name || e.split('@')[0]) : (e || '').split('@')[0]; };
+const crTpl = (id) => ((S.cr && S.cr.templates) || []).find((t) => t.id === id);
+const fillName = (t, n) => String(t || '').replace(/\{(nome|Nome|NOME)\}/g, n || '');
+const EMAIL_RE = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/;
+function platOf(link) {
+  const l = String(link || '').toLowerCase();
+  return /twitch\.tv/.test(l) ? 'twitch' : /kick\.com/.test(l) ? 'kick' : /tiktok\.com/.test(l) ? 'tiktok' : /youtu(\.be|be\.com)/.test(l) ? 'youtube' : /instagram\.com/.test(l) ? 'instagram' : '';
+}
+const safeLink = (u) => (/^https?:\/\//i.test(u || '') ? u : null);
+async function crReload(main) { try { S.cr = await sql('creators'); } catch (e) { toast(explain(e)); } if (S.view === 'creators') renderCreators(main); if (S.view === 'mail') renderMail(main); }
+function tplSelect(value, onchange, opts = {}) {
+  const s = el('select', { class: 'search', 'aria-label': 'Bozza', ...(opts.attrs || {}) }, el('option', { value: '' }, opts.empty || 'Nessuna bozza'),
+    ...((S.cr && S.cr.templates) || []).map((t) => el('option', { value: t.id, selected: value === t.id }, t.name)));
+  if (onchange) s.addEventListener('change', () => onchange(s.value ? +s.value : null));
+  return s;
+}
+
+function renderCreators(main) {
+  const C = S.cr;
+  const q = el('input', { class: 'search', type: 'search', placeholder: 'Cerca nome o email', value: S.crq || '', 'aria-label': 'Cerca creator' });
+  q.addEventListener('input', () => { S.crq = q.value; paintList(); });
+  const add = el('button', { class: 'btn primary', type: 'button', onclick: () => creatorModal(null, main) }, '＋ Aggiungi creator');
+  const paste = el('button', { class: 'btn', type: 'button', onclick: () => pasteModal(main) }, 'Incolla una lista');
+  const body = el('div', { class: 'body cr-body' });
+  rc(main, head('Creator', q, paste, add), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  if (!C) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const F = [['all', 'Tutti'], ['ready', 'Pronti da mandare'], ['notpl', 'Senza bozza'], ['sent', 'Inviate'], ['replied', 'Hanno risposto'], ['err', 'Errori']];
+  const test = { all: () => true, ready: (c) => (c.status === 'nuovo' || c.status === 'errore') && c.template_id, notpl: (c) => !c.template_id && c.status === 'nuovo',
+    sent: (c) => c.status === 'inviata' || c.status === 'in_coda', replied: (c) => c.status === 'risposto', err: (c) => c.status === 'errore' };
+  S.crf = S.crf || 'all';
+  const count = (k) => C.creators.filter(test[k]).length;
+  const seg = el('div', { class: 'seg' }, ...F.map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(S.crf === k), onclick: () => { S.crf = k; S.crsel = new Set(); renderCreators(main); } }, l, el('i', { class: 'segn' }, count(k)))));
+  const who = el('select', { class: 'search', style: 'width:auto', 'aria-label': 'Aggiunti da' }, el('option', { value: '' }, 'Aggiunti da tutti'),
+    ...C.people.map((p) => el('option', { value: p.email, selected: S.crw === p.email }, p.name || p.email)));
+  who.addEventListener('change', () => { S.crw = who.value; paintList(); });
+  S.crsel = S.crsel || new Set();
+  const bulk = el('div', { class: 'cr-bulk' });
+  const list = el('div', { class: 'tblwrap' });
+  rc(body, el('div', { class: 'cr-bar' }, seg, el('span', { class: 'grow' }), who), bulk, list);
+
+  function rows() {
+    const qq = (S.crq || '').trim().toLowerCase();
+    return C.creators.filter(test[S.crf]).filter((c) => (!S.crw || c.added_by === S.crw) && (!qq || c.name.toLowerCase().includes(qq) || c.email.includes(qq)));
+  }
+  function paintBulk() {
+    const n = S.crsel.size;
+    if (!n) { rc(bulk); bulk.hidden = true; return; }
+    bulk.hidden = false;
+    const pick = tplSelect(null, null, { empty: 'Scegli la bozza…' });
+    rc(bulk, el('b', null, n === 1 ? '1 selezionato' : n + ' selezionati'), el('span', null, 'Assegna'), pick,
+      el('button', { class: 'btn sm primary', type: 'button', onclick: async (e) => {
+        const tid = pick.value ? +pick.value : null; if (!tid) { pick.focus(); toast('Scegli una bozza'); return; }
+        e.currentTarget.disabled = true;
+        const ids = [...S.crsel]; let ok = 0;
+        for (let i = 0; i < ids.length; i += 6) {
+          const res = await Promise.allSettled(ids.slice(i, i + 6).map((id) => sql('creator_save', { id, template_id: tid })));
+          res.forEach((r) => { if (r.status === 'fulfilled') { ok++; const c = C.creators.find((x) => x.id === r.value.id); if (c) Object.assign(c, r.value); } });
+        }
+        toast('Bozza assegnata a ' + ok + (ok === 1 ? ' creator' : ' creator')); S.crsel = new Set(); renderCreators(main);
+      } }, 'Assegna'),
+      el('span', { class: 'grow' }),
+      el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { S.crsel = new Set(); paintList(); } }, 'Deseleziona'));
+  }
+  function paintList() {
+    const R = rows();
+    paintBulk();
+    if (!C.creators.length) { rc(list, el('div', { class: 'empty cr-empty' }, el('b', null, 'Ancora nessun creator'), el('p', null, 'Aggiungi il primo con nome ed email, oppure incolla una lista intera: una riga per creator.'))); return; }
+    if (!R.length) { rc(list, el('div', { class: 'empty' }, 'Nessun creator con questi filtri.')); return; }
+    const all = R.length && R.every((c) => S.crsel.has(c.id));
+    const allCb = el('input', { type: 'checkbox', checked: all, 'aria-label': 'Seleziona tutti' });
+    allCb.addEventListener('change', () => { R.forEach((c) => (allCb.checked ? S.crsel.add(c.id) : S.crsel.delete(c.id))); paintList(); });
+    rc(list, el('table', { class: 'tbl cr-tbl' },
+      el('thead', null, el('tr', null, el('th', { class: 'ck' }, allCb), el('th', null, 'Creator'), el('th', null, 'Email'), el('th', null, 'Bozza'), el('th', null, 'Stato'), el('th', { class: 'hide-m' }, 'Aggiunto da'), el('th', null, ''))),
+      el('tbody', null, ...R.map((c) => {
+        const cb = el('input', { type: 'checkbox', checked: S.crsel.has(c.id), 'aria-label': 'Seleziona ' + c.name });
+        cb.addEventListener('change', () => { if (cb.checked) S.crsel.add(c.id); else S.crsel.delete(c.id); paintBulk(); allCb.checked = R.every((x) => S.crsel.has(x.id)); });
+        const locked = c.status === 'in_coda' || c.status === 'inviata';
+        const tsel = tplSelect(c.template_id, async (tid) => {
+          try { Object.assign(c, await sql('creator_save', { id: c.id, template_id: tid })); toast(tid ? 'Bozza assegnata' : 'Bozza tolta'); }
+          catch (e) { toast(explain(e)); }
+          paintList();
+        }, { attrs: { disabled: locked ? true : null, class: 'search sm' } });
+        const [stl, stc] = CR_ST[c.status] || [c.status, ''];
+        const plat = (CR_PLAT.find((p) => p[0] === c.platform) || [])[1];
+        const lk = safeLink(c.link);
+        return el('tr', { class: S.crsel.has(c.id) ? 'sel' : '' },
+          el('td', { class: 'ck' }, cb),
+          el('td', null, el('div', { class: 'cr-who' }, el('b', null, c.name),
+            el('small', null, plat || '', plat && c.link ? ' · ' : '', lk ? el('a', { href: lk, target: '_blank', rel: 'noopener noreferrer' }, c.link.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40)) : (c.link || '')))),
+          el('td', { class: 'cr-mail' }, c.email),
+          el('td', null, tsel),
+          el('td', null, el('span', { class: 'pill ' + stc, title: c.last_error || '' }, stl)),
+          el('td', { class: 'hide-m' }, el('span', { class: 'muted' }, crName(c.added_by) + ' · ' + when(c.created_at))),
+          el('td', { style: 'text-align:right;white-space:nowrap' }, el('button', { class: 'btn sm ghost', type: 'button', onclick: () => creatorModal(c, main) }, 'Modifica')));
+      }))));
+  }
+  paintList();
+}
+
+function creatorModal(c, main) {
+  const isNew = !c; c = c || { name: '', email: '', platform: '', link: '', notes: '', template_id: (S.cr.templates[0] || {}).id || null, status: 'nuovo' };
+  const name = el('input', { class: 'search', placeholder: 'Nome del creator', value: c.name, maxlength: '120', 'aria-label': 'Nome' });
+  const email = el('input', { class: 'search', type: 'email', placeholder: 'email@esempio.com', value: c.email, autocomplete: 'off', 'aria-label': 'Email' });
+  const link = el('input', { class: 'search', placeholder: 'Link al canale (twitch.tv/…, kick.com/…)', value: c.link || '', maxlength: '300', 'aria-label': 'Link' });
+  const plat = el('select', { class: 'search', 'aria-label': 'Piattaforma' }, el('option', { value: '' }, 'Piattaforma'), ...CR_PLAT.map(([v, l]) => el('option', { value: v, selected: c.platform === v }, l)));
+  link.addEventListener('input', () => { const p = platOf(link.value); if (p && !plat.value) plat.value = p; });
+  const tpl = tplSelect(c.template_id, null);
+  const notes = el('textarea', { class: 'note', placeholder: 'Note (follower, quando streamma, chi l\'ha trovato…)', maxlength: '1000', style: 'min-height:60px' }); notes.value = c.notes || '';
+  const st = el('select', { class: 'search', 'aria-label': 'Stato', disabled: c.status === 'in_coda' ? true : null },
+    ...[['nuovo', 'Da mandare'], ['risposto', 'Ha risposto'], ['no', 'Non contattare']].map(([v, l]) => el('option', { value: v, selected: c.status === v }, l)),
+    ['inviata', 'in_coda', 'errore'].includes(c.status) ? el('option', { value: '', selected: true }, CR_ST[c.status][0]) : null);
+  const close = () => { bg.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  const save = async (again) => {
+    const patch = { name: name.value.trim(), email: email.value.trim(), link: link.value.trim(), platform: plat.value || platOf(link.value) || null, notes: notes.value, template_id: tpl.value ? +tpl.value : null };
+    if (!patch.name) { name.focus(); toast('Scrivi il nome'); return; }
+    if (!EMAIL_RE.test(patch.email)) { email.focus(); toast('Email non valida'); return; }
+    if (!isNew && st.value) patch.status = st.value;
+    try {
+      const r = await sql('creator_save', isNew ? patch : { id: c.id, ...patch });
+      if (isNew) S.cr.creators.unshift(r); else Object.assign(S.cr.creators.find((x) => x.id === c.id) || {}, r);
+      toast(isNew ? r.name + ' aggiunto' : 'Salvato');
+      if (again) { name.value = ''; email.value = ''; link.value = ''; notes.value = ''; plat.value = ''; name.focus(); renderCreators(main); return; }
+      close(); renderCreators(main);
+    } catch (e) { toast(explain(e)); }
+  };
+  [name, email, link].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(isNew); } }));
+  let armed = false;
+  const del = isNew ? null : el('button', { class: 'btn bad', type: 'button', onclick: async (e) => {
+    if (!armed) { armed = true; e.currentTarget.textContent = 'Conferma: elimina'; return; }
+    try { await sql('creator_remove', { id: c.id }); S.cr.creators = S.cr.creators.filter((x) => x.id !== c.id); close(); toast('Creator eliminato'); renderCreators(main); } catch (x) { toast(explain(x)); }
+  } }, 'Elimina');
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal', role: 'dialog', 'aria-label': isNew ? 'Nuovo creator' : 'Creator' },
+    el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuovo creator' : c.name), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
+    el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Nome'), name), el('label', { class: 'fld' }, el('span', null, 'Email'), email)),
+    el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Canale'), link), el('label', { class: 'fld' }, el('span', null, 'Piattaforma'), plat)),
+    el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Bozza da mandare'), tpl), isNew ? el('span') : el('label', { class: 'fld' }, el('span', null, 'Stato'), st)),
+    el('label', { class: 'fld' }, el('span', null, 'Note'), notes),
+    isNew ? el('p', { class: 'muted', style: 'margin:0;font-size:12px' }, 'Invio: salva e passa al prossimo creator.') : el('p', { class: 'muted', style: 'margin:0;font-size:12px' }, 'Aggiunto da ' + crName(c.added_by) + ' ' + when(c.created_at) + (c.sent_at ? ' · mail inviata ' + when(c.sent_at) : '') + (c.last_error ? ' · errore: ' + c.last_error : '')),
+    el('div', { class: 'row' }, del, el('span', { class: 'grow' }), el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'),
+      isNew ? el('button', { class: 'btn', type: 'button', onclick: () => save(true) }, 'Salva e aggiungi un altro') : null,
+      el('button', { class: 'btn primary', type: 'button', onclick: () => save(false) }, isNew ? 'Aggiungi' : 'Salva'))));
+  document.body.append(bg);
+  setTimeout(() => name.focus(), 30);
+}
+
+// lista incollata: una riga per creator, l'email si trova da sola; il resto della riga e' nome e link
+function parseCreators(text) {
+  const out = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.trim(); if (!line) continue;
+    const m = line.match(EMAIL_RE); if (!m) { out.push({ bad: line }); continue; }
+    const rest = line.replace(m[0], ' ');
+    const lk = (rest.match(/https?:\/\/\S+|(?:www\.)?(?:twitch\.tv|kick\.com|tiktok\.com|youtube\.com|instagram\.com)\/\S+/i) || [''])[0].replace(/[,;)]+$/, '');
+    const name = rest.replace(lk, ' ').split(/[,;\t|]+/).map((x) => x.trim()).filter(Boolean)[0] || '';
+    out.push({ name: name.replace(/^[-–•*\s]+/, '').slice(0, 120), email: m[0].toLowerCase(), link: lk ? (/^https?:/i.test(lk) ? lk : 'https://' + lk) : '', platform: platOf(lk) });
+  }
+  return out;
+}
+function pasteModal(main) {
+  const ta = el('textarea', { class: 'note', style: 'min-height:200px;font-family:var(--mono);font-size:12.5px', placeholder: 'Una riga per creator, per esempio:\nMario Rossi, mario@gmail.com, twitch.tv/mariorossi\nLuca Bianchi; luca.live@outlook.it; https://kick.com/lucab', 'aria-label': 'Lista di creator' });
+  const tpl = tplSelect((S.cr.templates[0] || {}).id || null, null);
+  const info = el('p', { class: 'muted', style: 'margin:0' }, 'Incolla da un foglio, da una chat o da note: l\'email in ogni riga si trova da sola.');
+  const go2 = el('button', { class: 'btn primary', type: 'button', disabled: true }, 'Importa');
+  const upd = () => {
+    const P = parseCreators(ta.value), ok = P.filter((x) => !x.bad), bad = P.length - ok.length;
+    const dup = ok.filter((x) => S.cr.creators.some((c) => c.email === x.email)).length;
+    go2.disabled = !ok.length; go2.textContent = ok.length ? 'Importa ' + (ok.length - dup) + (ok.length - dup === 1 ? ' creator' : ' creator') : 'Importa';
+    info.textContent = !P.length ? 'Incolla da un foglio, da una chat o da note: l\'email in ogni riga si trova da sola.'
+      : ok.length + ' con email' + (dup ? ', ' + dup + ' già in lista' : '') + (bad ? ', ' + bad + (bad === 1 ? ' riga senza email (saltata)' : ' righe senza email (saltate)') : '') + '.';
+  };
+  ta.addEventListener('input', upd);
+  const close = () => bg.remove();
+  go2.addEventListener('click', async () => {
+    const rows = parseCreators(ta.value).filter((x) => !x.bad).map(({ name, email, link, platform }) => ({ name, email, link, platform }));
+    go2.disabled = true;
+    try {
+      const r = await sql('creators_import', { rows, template_id: tpl.value ? +tpl.value : null });
+      close(); toast(r.added + ' aggiunti' + (r.dups.length ? ', ' + r.dups.length + ' già in lista' : '') + (r.invalid ? ', ' + r.invalid + ' non validi' : ''));
+      await crReload(main);
+    } catch (e) { go2.disabled = false; toast(explain(e)); }
+  });
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal', role: 'dialog', 'aria-label': 'Incolla una lista' },
+    el('div', { class: 'row' }, el('h2', { class: 'grow' }, 'Incolla una lista'), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
+    ta, info, el('label', { class: 'fld' }, el('span', null, 'Bozza per tutti'), tpl),
+    el('div', { class: 'row' }, el('span', { class: 'grow' }), el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'), go2)));
+  document.body.append(bg);
+  setTimeout(() => ta.focus(), 30);
+}
+
+// ---- email: bozze, pronte da mandare, coda e registro
+let mailTimer = null;
+function renderMail(main) {
+  const C = S.cr;
+  clearTimeout(mailTimer);
+  const body = el('div', { class: 'body mail-body' });
+  rc(main, head('Email ai creator', el('button', { class: 'btn primary', type: 'button', onclick: () => templateModal(null, main) }, '＋ Nuova bozza')), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  if (!C) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const canSend = CAN('creators_send');
+  const sm = C.smtp || {}, Q = C.queue || {};
+  // casella di invio
+  const smtpBox = sm.ok ? el('div', { class: 'mail-state ok' }, el('i'), el('span', null, 'Le email partono da ', el('b', null, sm.from || 'la casella ufficiale'), '.'))
+    : sm.error === 'auth' ? el('div', { class: 'mail-state bad' }, el('i'), el('span', null, el('b', null, 'Hostinger ha rifiutato la password. '), 'Controlla HOSTINGER_SMTP_USER e HOSTINGER_SMTP_PASS nei segreti di Supabase (Edge Functions → Secrets). Le email restano in coda e ripartono da sole.'))
+    : sm.error === 'send' ? el('div', { class: 'mail-state warn' }, el('i'), el('span', null, el('b', null, 'Ultimo invio non riuscito: '), String(sm.detail || '').slice(0, 160)))
+    : el('div', { class: 'mail-state warn' }, el('i'), el('span', null, el('b', null, 'Casella Hostinger da collegare. '), 'In Supabase → Edge Functions → Secrets aggiungi HOSTINGER_SMTP_USER (l\'email ufficiale di NoonFrame) e HOSTINGER_SMTP_PASS (la sua password). Finché manca, le email restano in coda.'));
+  // bozze
+  const tpls = el('div', { class: 'tpl-grid' }, ...(C.templates.length ? C.templates.map((t) => el('button', { class: 'tpl-card', type: 'button', onclick: () => templateModal(t, main) },
+    el('b', null, t.name), el('span', { class: 'tpl-sub' }, fillName(t.subject, 'Mario')), el('span', { class: 'tpl-body' }, fillName(t.body, 'Mario').slice(0, 160)),
+    el('small', { class: 'muted' }, (t.used ? t.used + (t.used === 1 ? ' creator' : ' creator') : 'Non ancora assegnata') + ' · ' + crName(t.created_by)))) :
+    [el('div', { class: 'empty cr-empty' }, el('b', null, 'Nessuna bozza'), el('p', null, 'Scrivi la prima: usa {nome} dove va il nome del creator.'))]));
+  // pronte da mandare
+  const ready = C.creators.filter((c) => (c.status === 'nuovo' || c.status === 'errore') && c.template_id && crTpl(c.template_id));
+  S.mailsel = S.mailsel && S.mailsel.size ? new Set([...S.mailsel].filter((id) => ready.some((c) => c.id === id))) : new Set(ready.map((c) => c.id));
+  const readyBox = el('section', { class: 'mail-sec' });
+  const paintReady = () => {
+    if (!ready.length) { rc(readyBox, el('h2', null, 'Pronte da mandare'), el('div', { class: 'empty' }, C.creators.some((c) => c.status === 'nuovo' && !c.template_id) ? 'Ci sono creator senza bozza: assegnala nella tab Creator.' : 'Niente da mandare. Aggiungi creator e assegna una bozza.')); return; }
+    const n = S.mailsel.size;
+    const allCb = el('input', { type: 'checkbox', checked: n === ready.length, 'aria-label': 'Seleziona tutti' });
+    allCb.addEventListener('change', () => { S.mailsel = allCb.checked ? new Set(ready.map((c) => c.id)) : new Set(); paintReady(); });
+    const sendBtn = canSend ? el('button', { class: 'btn primary', type: 'button', disabled: !n ? true : null, onclick: async (e) => {
+      const left = Math.max(0, (Q.cap || 150) - (Q.sent_today || 0));
+      if (!e.currentTarget.dataset.armed) { e.currentTarget.dataset.armed = '1'; e.currentTarget.textContent = 'Conferma: manda ' + n + (n === 1 ? ' email' : ' email'); return; }
+      e.currentTarget.disabled = true;
+      try { const r = await sql('creators_send', { ids: [...S.mailsel] }); toast(r.queued + ' in coda' + (r.skipped ? ', ' + r.skipped + ' saltate (già mandate o senza bozza)' : '') + (r.queued > left ? ' · oggi ne partono ' + left + ', le altre domani' : '')); S.mailsel = null; await crReload(main); }
+      catch (x) { toast(explain(x)); e.currentTarget.disabled = false; }
+    } }, 'Manda ' + n + (n === 1 ? ' email' : ' email')) : el('span', { class: 'muted' }, 'Puoi preparare e assegnare le bozze. Per mandarle serve il permesso: lo decide Emanuele.');
+    const byTpl = {};
+    ready.forEach((c) => { (byTpl[c.template_id] = byTpl[c.template_id] || []).push(c); });
+    rc(readyBox, el('div', { class: 'row' }, el('h2', { class: 'grow' }, 'Pronte da mandare ', el('i', { class: 'segn' }, ready.length)), allCb, el('span', { class: 'muted' }, 'tutte'), sendBtn),
+      ...Object.entries(byTpl).map(([tid, list]) => {
+        const t = crTpl(+tid);
+        return el('div', { class: 'mail-grp' }, el('div', { class: 'mail-grp-h' }, el('b', null, t.name), el('span', { class: 'muted' }, list.length + (list.length === 1 ? ' creator' : ' creator'))),
+          ...list.map((c) => {
+            const cb = el('input', { type: 'checkbox', checked: S.mailsel.has(c.id), 'aria-label': 'Manda a ' + c.name });
+            cb.addEventListener('change', () => { if (cb.checked) S.mailsel.add(c.id); else S.mailsel.delete(c.id); paintReady(); });
+            const pv = el('details', { class: 'mail-pv' }, el('summary', null, el('span', { class: 'mail-to' }, el('b', null, c.name), ' ', el('span', { class: 'muted' }, c.email)),
+              el('span', { class: 'mail-subj' }, fillName(t.subject, c.name)), c.status === 'errore' ? el('span', { class: 'pill bad', title: c.last_error || '' }, 'Riprova') : null),
+              el('div', { class: 'mail-pv-b' }, el('div', { class: 'mail-pv-s' }, 'Oggetto: ', el('b', null, fillName(t.subject, c.name))), el('pre', null, fillName(t.body, c.name))));
+            return el('div', { class: 'mail-row' }, cb, pv);
+          }));
+      }));
+  };
+  paintReady();
+  // coda e limiti
+  const capIn = el('input', { class: 'search sm', type: 'number', min: '1', max: '2000', value: Q.cap || 150, style: 'width:80px', 'aria-label': 'Email al giorno', disabled: canSend ? null : true });
+  capIn.addEventListener('change', async () => { try { await sql('mail_admin', { op: 'cap', cap: +capIn.value }); toast('Limite aggiornato'); await crReload(main); } catch (e) { toast(explain(e)); } });
+  const qBox = el('section', { class: 'mail-sec mail-q' },
+    el('div', { class: 'mail-kpis' },
+      el('div', { class: 'kpi' }, el('b', null, Q.pending || 0), el('span', null, 'in coda')),
+      el('div', { class: 'kpi' }, el('b', null, (Q.sent_today || 0)), el('span', null, 'mandate oggi')),
+      el('div', { class: 'kpi' + (Q.failed ? ' hot' : '') }, el('b', null, Q.failed || 0), el('span', null, 'non riuscite (7 giorni)'))),
+    el('div', { class: 'row' }, el('span', { class: 'muted' }, 'Al massimo'), capIn, el('span', { class: 'muted' }, 'email al giorno, circa 6 al minuto. Quelle in più partono il giorno dopo.'), el('span', { class: 'grow' }),
+      canSend && Q.failed ? el('button', { class: 'btn sm', type: 'button', onclick: async () => { try { const r = await sql('mail_admin', { op: 'retry' }); toast(r.reset + ' di nuovo pronte da mandare'); await crReload(main); } catch (e) { toast(explain(e)); } } }, 'Rimetti gli errori tra le pronte') : null,
+      canSend && Q.pending ? el('button', { class: 'btn sm bad', type: 'button', onclick: async (e) => {
+        if (!e.currentTarget.dataset.armed) { e.currentTarget.dataset.armed = '1'; e.currentTarget.textContent = 'Conferma: ferma la coda'; return; }
+        try { const r = await sql('mail_admin', { op: 'cancel' }); toast('Coda fermata: ' + r.canceled + ' tornano tra le pronte'); await crReload(main); } catch (x) { toast(explain(x)); }
+      } }, 'Ferma la coda') : null));
+  // registro
+  const MS = { pending: ['In coda', 'wait'], sent: ['Inviata', 'done'], failed: ['Non riuscita', 'bad'], canceled: ['Annullata', 'no'] };
+  const log = el('details', { class: 'box' }, el('summary', null, 'Ultime email (' + C.log.length + ')'),
+    C.log.length ? el('div', { class: 'tblwrap' }, el('table', { class: 'tbl' }, el('tbody', null, ...C.log.map((m) => el('tr', null,
+      el('td', null, el('b', null, m.to_name || m.to_email), m.is_test ? el('span', { class: 'chip', style: 'margin-left:6px' }, 'Prova') : null, el('div', { class: 'muted', style: 'font-size:12px' }, m.to_email)),
+      el('td', { class: 'hide-m' }, m.subject),
+      el('td', null, el('span', { class: 'pill ' + (MS[m.status] || ['', ''])[1], title: m.error || '' }, (MS[m.status] || [m.status])[0])),
+      el('td', { class: 'hide-m muted' }, when(m.sent_at || m.created_at) + ' · ' + crName(m.created_by))))))) : el('p', { class: 'muted' }, 'Ancora nessuna email.'));
+  rc(body, smtpBox, el('section', { class: 'mail-sec' }, el('h2', null, 'Bozze'), tpls), readyBox, qBox, log);
+  if (Q.pending) mailTimer = setTimeout(() => { if (S.view === 'mail' && !document.querySelector('.modal-bg')) crReload(main); }, 15000);
+}
+
+function templateModal(t, main) {
+  const isNew = !t; t = t || { name: '', subject: '', body: 'Ciao {nome},\n\n' };
+  const name = el('input', { class: 'search', placeholder: 'Nome della bozza (lo vede solo il team)', value: t.name, maxlength: '80', 'aria-label': 'Nome della bozza' });
+  const subj = el('input', { class: 'search', placeholder: 'Oggetto della mail', value: t.subject, maxlength: '200', 'aria-label': 'Oggetto' });
+  const text = el('textarea', { class: 'note tpl-text', maxlength: '20000', 'aria-label': 'Testo della mail' }); text.value = t.body;
+  const sample = el('input', { class: 'search sm', value: 'Mario', style: 'width:120px', 'aria-label': 'Nome di esempio' });
+  const pv = el('div', { class: 'tpl-pv' });
+  const paint = () => rc(pv, el('div', { class: 'mail-pv-s' }, 'Oggetto: ', el('b', null, fillName(subj.value, sample.value) || '—')), el('pre', null, fillName(text.value, sample.value)));
+  [subj, text, sample].forEach((i) => i.addEventListener('input', paint)); paint();
+  let lastFocus = text;
+  [subj, text].forEach((i) => i.addEventListener('focus', () => { lastFocus = i; }));
+  const insName = el('button', { class: 'btn sm', type: 'button', onclick: () => {
+    const i = lastFocus, a = i.selectionStart ?? i.value.length, b = i.selectionEnd ?? a;
+    i.value = i.value.slice(0, a) + '{nome}' + i.value.slice(b); i.focus(); i.selectionStart = i.selectionEnd = a + 6; paint();
+  } }, 'Inserisci {nome}');
+  const close = () => { bg.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  const save = async () => {
+    try {
+      const r = await sql('template_save', { id: isNew ? null : t.id, name: name.value, subject: subj.value, body: text.value });
+      close(); toast(isNew ? 'Bozza creata' : 'Bozza salvata'); await crReload(main); return r;
+    } catch (e) { toast(explain(e)); return null; }
+  };
+  const testBtn = !isNew && CAN('creators_send') ? el('button', { class: 'btn', type: 'button', onclick: async (e) => {
+    e.currentTarget.disabled = true;
+    try { await sql('template_save', { id: t.id, name: name.value, subject: subj.value, body: text.value }); const r = await sql('mail_test', { template_id: t.id, name: sample.value }); toast('Prova in arrivo a ' + r.to); }
+    catch (x) { toast(explain(x)); }
+    e.currentTarget.disabled = false;
+  } }, 'Manda una prova a me') : null;
+  let armed = false;
+  const del = isNew ? null : el('button', { class: 'btn bad', type: 'button', onclick: async (e) => {
+    if (!armed) { armed = true; e.currentTarget.textContent = 'Conferma: elimina'; return; }
+    try { await sql('template_remove', { id: t.id }); close(); toast('Bozza eliminata'); await crReload(main); } catch (x) { toast(explain(x)); }
+  } }, 'Elimina');
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal tpl-modal', role: 'dialog', 'aria-label': isNew ? 'Nuova bozza' : 'Bozza' },
+    el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuova bozza' : 'Bozza'), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
+    el('div', { class: 'tpl-cols' },
+      el('div', { class: 'tpl-ed' }, name, subj, text, el('div', { class: 'row' }, insName, el('span', { class: 'muted', style: 'font-size:12px' }, '{nome} diventa il nome di ogni creator. Consiglio: chiudi con una riga per chi non vuole altre email.'))),
+      el('div', { class: 'tpl-side' }, el('div', { class: 'row' }, el('b', { class: 'grow' }, 'Anteprima'), el('span', { class: 'muted' }, 'con'), sample), pv)),
+    el('div', { class: 'row' }, del, el('span', { class: 'grow' }), testBtn, el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'), el('button', { class: 'btn primary', type: 'button', onclick: save }, isNew ? 'Crea bozza' : 'Salva'))));
+  document.body.append(bg);
+  setTimeout(() => (isNew ? name : text).focus(), 30);
+}
+
 function taskFromReport(r) {
   return el('button', { class: 'btn', type: 'button', onclick: () => taskModal(null, { title: (r.text || 'Segnalazione').replace(/\s+/g, ' ').slice(0, 120), notes: 'Dalla segnalazione di ' + (r.who || 'un utente') + ':\n\n' + (r.text || ''), report_id: r.id, area: r.kind === 'bug' ? 'Sviluppo' : '' }, $('#main')) }, 'Crea task');
 }
@@ -1038,6 +1363,8 @@ function taskFromReport(r) {
 const PERMS = [
   ['launch', 'Lancio e numeri', 'Download, iscritti e obiettivi del lancio'],
   ['tasks', 'Task', 'Vedere, creare e spostare le task del team'],
+  ['creators', 'Creator: aggiungere e assegnare', 'Mettere nomi ed email dei creator, scrivere le bozze e assegnarle. Lo decide solo il proprietario'],
+  ['creators_send', 'Creator: mandare le email', 'Spedire le email dalla casella ufficiale di NoonFrame. Lo decide solo il proprietario', 'creators'],
   ['reports', 'Vedere le segnalazioni', 'Bug e idee degli utenti, con screenshot ed email di chi scrive'],
   ['reports_decide', 'Decidere le segnalazioni', 'Approvare, rifiutare e mandare richieste a Claude', 'reports'],
   ['users', 'Vedere gli utenti', 'Email, dispositivi e uso dell\'app: sono dati personali'],
@@ -1055,6 +1382,7 @@ const ROLES = [
   ['marketing', 'Marketing', 'Numeri, prezzi, offerte e messaggi', ['launch', 'tasks', 'shop', 'messages']],
   ['lettura', 'Solo lettura', 'Numeri e task', ['launch', 'tasks']],
 ];
+const OWNER_ONLY = ['creators', 'creators_send'];   // chi puo' solo assegnare e chi puo' anche mandare: lo decide solo il proprietario
 const permName = (k) => (PERMS.find((p) => p[0] === k) || [k, k])[1];
 function memberState(m) {
   if (m.role === 'owner') return ['done', 'Proprietario'];
@@ -1110,18 +1438,18 @@ function memberModal(m, main) {
   const email = el('input', { class: 'search', type: 'email', placeholder: 'nome@gmail.com', value: m.email, disabled: !isNew, autocomplete: 'off', 'aria-label': 'Email' });
   const name = el('input', { class: 'search', placeholder: 'Nome', value: m.name || '', maxlength: '60', 'aria-label': 'Nome' });
   let role = m.role, perms = new Set(m.perms);
-  const locked = (k) => owner || self || (ME.role !== 'owner' && !CAN(k));
+  const locked = (k) => owner || self || (ME.role !== 'owner' && (!CAN(k) || OWNER_ONLY.includes(k)));
   const roleBox = el('div', { class: 'roles' }), permBox = el('div', { class: 'perms' });
   const paint = () => {
     rc(roleBox, ...ROLES.map(([k, l, d, ps]) => el('button', { type: 'button', class: 'role', 'aria-pressed': String(role === k), disabled: owner || self || (ME.role !== 'owner' && !ps.every(CAN)),
-      onclick: () => { role = k; perms = new Set(ps); paint(); } }, el('b', null, l), el('small', null, d))),
+      onclick: () => { role = k; perms = new Set([...ps.filter((x) => ME.role === 'owner' || !OWNER_ONLY.includes(x)), ...(ME.role === 'owner' ? [] : [...perms].filter((x) => OWNER_ONLY.includes(x)))]); paint(); } }, el('b', null, l), el('small', null, d))),
       el('button', { type: 'button', class: 'role', 'aria-pressed': String(role === 'custom'), disabled: owner || self, onclick: () => { role = 'custom'; paint(); } }, el('b', null, 'Personalizzato'), el('small', null, 'Scegli tu')));
     rc(permBox, ...PERMS.map(([k, l, d, needs]) => {
       const on = owner || perms.has(k);
       const cb = el('input', { type: 'checkbox', checked: on, disabled: locked(k) || (needs && !perms.has(needs) && !owner) });
       cb.addEventListener('change', () => {
         if (cb.checked) perms.add(k); else { perms.delete(k); PERMS.filter((p) => p[3] === k).forEach((p) => perms.delete(p[0])); }
-        const match = ROLES.find((r) => r[3].length === perms.size && r[3].every((x) => perms.has(x)));
+        const core = [...perms].filter((x) => !OWNER_ONLY.includes(x)), match = ROLES.find((r) => { const rc2 = r[3].filter((x) => !OWNER_ONLY.includes(x)); return rc2.length === core.length && rc2.every((x) => perms.has(x)); });
         role = match ? match[0] : 'custom'; paint();
       });
       return el('label', { class: 'perm' + (needs ? ' sub' : '') }, cb, el('span', null, el('b', null, l), el('small', null, d)));
