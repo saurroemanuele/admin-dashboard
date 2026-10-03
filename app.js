@@ -152,7 +152,7 @@ const SUB = {
   Task: 'Le cose da fare del team. Trascina una card per cambiarne lo stato.',
   'Team e permessi': 'Chi può entrare in questo pannello e cosa può fare.',
   Persone: 'Solo per i founder: quanto lavora ogni persona del team, creator trovati, email, risposte e task.',
-  Creator: 'Le email dei creator trovate dal team. Scrivi nome ed email e assegna la bozza da mandare.',
+  Creator: 'I creator trovati dal team. Con l\'email ricevono la bozza; senza email si scrivono su Instagram.',
   'Email ai creator': 'Le bozze e l\'invio: ogni creator riceve la sua bozza con il suo nome, dalla casella ufficiale di NoonFrame.',
   Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
   Messaggi: 'Avvisi e novità che arrivano nella campanella dell\'app.',
@@ -1042,7 +1042,8 @@ async function taskModal(k, def, main) {
 }
 // ------------------------------------------------------------------ creator: email trovate dal team, bozze e invio
 const CR_PLAT = [['twitch', 'Twitch'], ['kick', 'Kick'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['instagram', 'Instagram'], ['altro', 'Altro']];
-const CR_ST = { nuovo: ['Da mandare', ''], in_coda: ['In coda', 'wait'], inviata: ['Inviata', 'done'], risposto: ['Ha risposto', 'done'], errore: ['Errore', 'bad'], no: ['Non contattare', 'no'] };
+const CR_ST = { nuovo: ['Da mandare', ''], in_coda: ['In coda', 'wait'], inviata: ['Inviata', 'done'], risposto: ['Ha risposto', 'done'], errore: ['Errore', 'bad'], no: ['Non contattare', 'no'], ig: ['Contattato su IG', 'done'] };
+const igLink = (c) => { const x = (c.channels || []).find((h) => h.platform === 'instagram' && safeLink(h.link)); return x ? x.link : null; };
 const crName = (e) => { const p = ((S.cr && S.cr.people) || []).find((x) => x.email === e); return p ? (p.name || e.split('@')[0]) : (e || '').split('@')[0]; };
 const crTpl = (id) => ((S.cr && S.cr.templates) || []).find((t) => t.id === id);
 const fillName = (t, n) => String(t || '').replace(/\{(nome|Nome|NOME)\}/g, n || '');
@@ -1062,7 +1063,7 @@ function tplSelect(value, onchange, opts = {}) {
 
 function renderCreators(main) {
   const C = S.cr;
-  const q = el('input', { class: 'search', type: 'search', placeholder: 'Cerca nome o email', value: S.crq || '', 'aria-label': 'Cerca creator' });
+  const q = el('input', { class: 'search', type: 'search', placeholder: 'Cerca nome, email o canale', value: S.crq || '', 'aria-label': 'Cerca creator' });
   q.addEventListener('input', () => { S.crq = q.value; paintList(); });
   const add = el('button', { class: 'btn primary', type: 'button', onclick: () => creatorModal(null, main) }, '＋ Aggiungi creator');
   const paste = el('button', { class: 'btn', type: 'button', onclick: () => pasteModal(main) }, 'Incolla una lista');
@@ -1070,9 +1071,9 @@ function renderCreators(main) {
   rc(main, head('Creator', q, paste, add), body);
   if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
   if (!C) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
-  const F = [['all', 'Tutti'], ['ready', 'Pronti da mandare'], ['notpl', 'Senza bozza'], ['sent', 'Inviate'], ['replied', 'Hanno risposto'], ['err', 'Errori']];
-  const test = { all: () => true, ready: (c) => (c.status === 'nuovo' || c.status === 'errore') && c.template_id, notpl: (c) => !c.template_id && c.status === 'nuovo',
-    sent: (c) => c.status === 'inviata' || c.status === 'in_coda', replied: (c) => c.status === 'risposto', err: (c) => c.status === 'errore' };
+  const F = [['all', 'Tutti'], ['ready', 'Pronti da mandare'], ['notpl', 'Senza bozza'], ['ig', 'Da scrivere su IG'], ['sent', 'Contattati'], ['replied', 'Hanno risposto'], ['err', 'Errori']];
+  const test = { all: () => true, ready: (c) => c.email && (c.status === 'nuovo' || c.status === 'errore') && c.template_id, notpl: (c) => c.email && !c.template_id && c.status === 'nuovo',
+    ig: (c) => !c.email && c.status === 'nuovo', sent: (c) => c.status === 'inviata' || c.status === 'in_coda' || c.status === 'ig', replied: (c) => c.status === 'risposto', err: (c) => c.status === 'errore' };
   S.crf = S.crf || 'all';
   const count = (k) => C.creators.filter(test[k]).length;
   const seg = el('div', { class: 'seg' }, ...F.map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(S.crf === k), onclick: () => { S.crf = k; S.crsel = new Set(); renderCreators(main); } }, l, el('i', { class: 'segn' }, count(k)))));
@@ -1086,7 +1087,7 @@ function renderCreators(main) {
 
   function rows() {
     const qq = (S.crq || '').trim().toLowerCase();
-    return C.creators.filter(test[S.crf]).filter((c) => (!S.crw || c.added_by === S.crw) && (!qq || c.name.toLowerCase().includes(qq) || c.email.includes(qq)));
+    return C.creators.filter(test[S.crf]).filter((c) => (!S.crw || c.added_by === S.crw) && (!qq || c.name.toLowerCase().includes(qq) || (c.email || '').includes(qq) || (c.channels || []).some((h) => String(h.link || '').toLowerCase().includes(qq))));
   }
   function paintBulk() {
     const n = S.crsel.size;
@@ -1130,7 +1131,7 @@ function renderCreators(main) {
         return el('tr', { class: S.crsel.has(c.id) ? 'sel' : '' },
           el('td', { class: 'ck' }, cb),
           el('td', null, el('div', { class: 'cr-who' }, el('b', null, c.name), chanChips(c))),
-          el('td', { class: 'cr-mail' }, c.email),
+          el('td', { class: 'cr-mail' }, c.email || noMailCell(c, () => paintList())),
           el('td', null, tsel),
           el('td', null, el('span', { class: 'pill ' + stc, title: c.last_error || '' }, stl)),
           el('td', { class: 'hide-m' }, el('span', { class: 'muted' }, crName(c.added_by) + ' · ' + when(c.created_at))),
@@ -1158,10 +1159,32 @@ function chanChips(c) {
     return lk ? el('a', { class: 'ch ' + x.platform, href: lk, target: '_blank', rel: 'noopener noreferrer', title: x.link }, ...inner) : el('span', { class: 'ch ' + x.platform, title: x.link || '' }, ...inner);
   }));
 }
+// creator senza email: si scrive su Instagram (apri il profilo, copia il messaggio della bozza, segna come contattato)
+function noMailCell(c, repaint) {
+  const ig = igLink(c), t = crTpl(c.template_id);
+  const box = el('div', { class: 'cr-ig' }, el('span', { class: 'cr-noig' }, ig ? 'Nessuna email · scrivi su IG' : 'Nessuna email · manca Instagram'));
+  const acts = el('div', { class: 'cr-igacts' },
+    ig ? el('a', { class: 'btn sm', href: ig, target: '_blank', rel: 'noopener noreferrer' }, 'Apri Instagram') : null,
+    t ? el('button', { class: 'btn sm ghost', type: 'button', title: 'Copia il testo della bozza con il suo nome, da incollare in DM', onclick: async () => {
+      try { await navigator.clipboard.writeText(fillName(t.body, c.name)); toast('Messaggio copiato: incollalo in DM'); } catch (e) { toast('Copia non riuscita'); }
+    } }, 'Copia messaggio') : null,
+    c.status === 'nuovo' ? el('button', { class: 'btn sm ghost', type: 'button', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try { Object.assign(c, await sql('creator_save', { id: c.id, status: 'ig' })); toast(c.name + ': contattato su IG'); } catch (x) { toast(explain(x)); }
+      repaint();
+    } }, 'Segna contattato') : null);
+  if (acts.childNodes.length) box.append(acts);
+  return box;
+}
 function creatorModal(c, main) {
   const isNew = !c; c = c || { name: '', email: '', channels: [], template_id: (S.cr.templates[0] || {}).id || null, status: 'nuovo' };
   const name = el('input', { class: 'search', placeholder: 'Nome del creator', value: c.name, maxlength: '120', 'aria-label': 'Nome' });
-  const email = el('input', { class: 'search', type: 'email', placeholder: 'email@esempio.com', value: c.email, autocomplete: 'off', 'aria-label': 'Email' });
+  const email = el('input', { class: 'search', type: 'email', placeholder: 'email@esempio.com', value: c.email || '', autocomplete: 'off', 'aria-label': 'Email' });
+  // non tutti i creator hanno un'email: in quel caso si contatta su Instagram
+  const noMail = el('input', { type: 'checkbox', checked: !isNew && !c.email ? true : null });
+  const syncMail = () => { email.disabled = noMail.checked; email.placeholder = noMail.checked ? 'Nessuna email: lo scriviamo su Instagram' : 'email@esempio.com'; if (noMail.checked) email.value = ''; };
+  noMail.addEventListener('change', () => { syncMail(); if (!noMail.checked) email.focus(); else if (!rows.some((r) => r.platform === 'instagram')) { if (rows.length === 1 && !rows[0].platform && !rows[0].link) rows[0].platform = 'instagram'; else rows.push({ platform: 'instagram', link: '', followers: '' }); paintCh(); } });
+  syncMail();
   // canali: una riga per piattaforma, ognuna con link e follower
   let rows = (c.channels && c.channels.length ? c.channels : c.platform || c.link ? [{ platform: c.platform, link: c.link }] : [{ platform: '', link: '' }]).map((x) => ({ platform: x.platform || '', link: x.link || '', followers: x.followers != null ? String(x.followers) : '' }));
   const chBox = el('div', { class: 'chbox' });
@@ -1183,7 +1206,7 @@ function creatorModal(c, main) {
   paintCh();
   const tpl = tplSelect(c.template_id, null);
   const st = el('select', { class: 'search', 'aria-label': 'Stato', disabled: c.status === 'in_coda' ? true : null },
-    ...[['nuovo', 'Da mandare'], ['risposto', 'Ha risposto'], ['no', 'Non contattare']].map(([v, l]) => el('option', { value: v, selected: c.status === v }, l)),
+    ...[['nuovo', 'Da contattare'], ['ig', 'Contattato su IG'], ['risposto', 'Ha risposto'], ['no', 'Non contattare']].map(([v, l]) => el('option', { value: v, selected: c.status === v }, l)),
     ['inviata', 'in_coda', 'errore'].includes(c.status) ? el('option', { value: '', selected: true }, CR_ST[c.status][0]) : null);
   const close = () => { bg.remove(); document.removeEventListener('keydown', esc); };
   const esc = (e) => { if (e.key === 'Escape') close(); };
@@ -1199,13 +1222,16 @@ function creatorModal(c, main) {
     }
     const patch = { name: name.value.trim(), email: email.value.trim(), channels, template_id: tpl.value ? +tpl.value : null };
     if (!patch.name) { name.focus(); toast('Scrivi il nome'); return; }
-    if (!EMAIL_RE.test(patch.email)) { email.focus(); toast('Email non valida'); return; }
+    if (noMail.checked) {
+      patch.email = '';
+      if (!channels.some((x) => x.platform === 'instagram' && x.link)) { toast('Senza email serve il link Instagram per scrivergli'); return; }
+    } else if (!EMAIL_RE.test(patch.email)) { email.focus(); toast(patch.email ? 'Email non valida' : 'Scrivi l\'email, oppure spunta «Nessuna email»'); return; }
     if (!isNew && st.value) patch.status = st.value;
     try {
       const r = await sql('creator_save', isNew ? patch : { id: c.id, ...patch });
       if (isNew) S.cr.creators.unshift(r); else Object.assign(S.cr.creators.find((x) => x.id === c.id) || {}, r);
       toast(isNew ? r.name + ' aggiunto' : 'Salvato');
-      if (again) { name.value = ''; email.value = ''; rows = [{ platform: '', link: '', followers: '' }]; paintCh(); name.focus(); renderCreators(main); return; }
+      if (again) { name.value = ''; email.value = ''; noMail.checked = false; syncMail(); rows = [{ platform: '', link: '', followers: '' }]; paintCh(); name.focus(); renderCreators(main); return; }
       close(); renderCreators(main);
     } catch (e) { toast(explain(e)); }
   }
@@ -1217,7 +1243,7 @@ function creatorModal(c, main) {
   } }, 'Elimina');
   const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal cr-modal', role: 'dialog', 'aria-label': isNew ? 'Nuovo creator' : 'Creator' },
     el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuovo creator' : c.name), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
-    el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Nome'), name), el('label', { class: 'fld' }, el('span', null, 'Email'), email)),
+    el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Nome'), name), el('div', { class: 'fld' }, el('span', null, 'Email'), email, el('label', { class: 'cr-nomail' }, noMail, el('span', null, 'Nessuna email (lo contattiamo su Instagram)')))),
     el('div', { class: 'fld' }, el('span', null, 'Piattaforme e follower'), chBox),
     el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Bozza da mandare'), tpl), isNew ? el('span') : el('label', { class: 'fld' }, el('span', null, 'Stato'), st)),
     el('p', { class: 'muted', style: 'margin:0;font-size:12px' }, isNew ? 'Trovato da: ' + crName(ME.email) + ' (preso dal tuo account). Invio: salva e passa al prossimo.'
@@ -1234,8 +1260,8 @@ function parseCreators(text) {
   const out = [];
   for (const raw of String(text).split(/\r?\n/)) {
     const line = raw.trim(); if (!line) continue;
-    const m = line.match(EMAIL_RE); if (!m) { out.push({ bad: line }); continue; }
-    const rest = line.replace(m[0], ' ');
+    const m = line.match(EMAIL_RE) || (/instagram\.com\//i.test(line) ? [''] : null); if (!m) { out.push({ bad: line }); continue; }
+    const rest = m[0] ? line.replace(m[0], ' ') : line;
     const lk = (rest.match(/https?:\/\/\S+|(?:www\.)?(?:twitch\.tv|kick\.com|tiktok\.com|youtube\.com|instagram\.com)\/\S+/i) || [''])[0].replace(/[,;)]+$/, '');
     const name = rest.replace(lk, ' ').split(/[,;\t|]+/).map((x) => x.trim()).filter(Boolean)[0] || '';
     const link = lk ? (/^https?:/i.test(lk) ? lk : 'https://' + lk) : '';
@@ -1246,16 +1272,16 @@ function parseCreators(text) {
   return out;
 }
 function pasteModal(main) {
-  const ta = el('textarea', { class: 'note', style: 'min-height:200px;font-family:var(--mono);font-size:12.5px', placeholder: 'Una riga per creator, per esempio:\nMario Rossi, mario@gmail.com, twitch.tv/mariorossi, 12k\nLuca Bianchi; luca.live@outlook.it; https://kick.com/lucab', 'aria-label': 'Lista di creator' });
+  const ta = el('textarea', { class: 'note', style: 'min-height:200px;font-family:var(--mono);font-size:12.5px', placeholder: 'Una riga per creator, per esempio:\nMario Rossi, mario@gmail.com, twitch.tv/mariorossi, 12k\nLuca Bianchi; luca.live@outlook.it; https://kick.com/lucab\nAnna Verdi, instagram.com/annaverdi, 3k (senza email)', 'aria-label': 'Lista di creator' });
   const tpl = tplSelect((S.cr.templates[0] || {}).id || null, null);
-  const info = el('p', { class: 'muted', style: 'margin:0' }, 'Incolla da un foglio, da una chat o da note: l\'email in ogni riga si trova da sola.');
+  const info = el('p', { class: 'muted', style: 'margin:0' }, 'Incolla da un foglio, da una chat o da note: l\'email in ogni riga si trova da sola. Chi non ha email va bene con il link Instagram.');
   const go2 = el('button', { class: 'btn primary', type: 'button', disabled: true }, 'Importa');
   const upd = () => {
     const P = parseCreators(ta.value), ok = P.filter((x) => !x.bad), bad = P.length - ok.length;
-    const dup = ok.filter((x) => S.cr.creators.some((c) => c.email === x.email)).length;
+    const dup = ok.filter((x) => x.email && S.cr.creators.some((c) => c.email === x.email)).length;
     go2.disabled = !ok.length; go2.textContent = ok.length ? 'Importa ' + (ok.length - dup) + (ok.length - dup === 1 ? ' creator' : ' creator') : 'Importa';
-    info.textContent = !P.length ? 'Incolla da un foglio, da una chat o da note: l\'email in ogni riga si trova da sola.'
-      : ok.length + ' con email' + (dup ? ', ' + dup + ' già in lista' : '') + (bad ? ', ' + bad + (bad === 1 ? ' riga senza email (saltata)' : ' righe senza email (saltate)') : '') + '.';
+    info.textContent = !P.length ? 'Incolla da un foglio, da una chat o da note: l\'email in ogni riga si trova da sola. Chi non ha email va bene con il link Instagram.'
+      : ok.length + ' validi' + (dup ? ', ' + dup + ' già in lista' : '') + (bad ? ', ' + bad + (bad === 1 ? ' riga senza email né Instagram (saltata)' : ' righe senza email né Instagram (saltate)') : '') + '.';
   };
   ta.addEventListener('input', upd);
   const close = () => bg.remove();
@@ -1298,7 +1324,7 @@ function renderMail(main) {
     el('small', { class: 'muted' }, (t.used ? t.used + (t.used === 1 ? ' creator' : ' creator') : 'Non ancora assegnata') + ' · ' + crName(t.created_by)))) :
     [el('div', { class: 'empty cr-empty' }, el('b', null, 'Nessuna bozza'), el('p', null, 'Scrivi la prima: usa {nome} dove va il nome del creator.'))]));
   // pronte da mandare
-  const ready = C.creators.filter((c) => (c.status === 'nuovo' || c.status === 'errore') && c.template_id && crTpl(c.template_id));
+  const ready = C.creators.filter((c) => c.email && (c.status === 'nuovo' || c.status === 'errore') && c.template_id && crTpl(c.template_id));
   S.mailsel = S.mailsel && S.mailsel.size ? new Set([...S.mailsel].filter((id) => ready.some((c) => c.id === id))) : new Set(ready.map((c) => c.id));
   const readyBox = el('section', { class: 'mail-sec' });
   const paintReady = () => {

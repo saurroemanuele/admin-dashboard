@@ -581,3 +581,10 @@ a.ch:hover { border-color: var(--line2); }
 .own-f { margin: 0; }
 .chip.ok { background: var(--ok-soft); color: var(--ok); }
 @media (max-width: 640px) { .roles.three { grid-template-columns: 1fr; } }
+/* creator senza email: si contatta su Instagram */
+.cr-ig { display: flex; flex-direction: column; gap: 6px; font-family: var(--font); }
+.cr-noig { color: var(--text3); font-size: 12.5px; }
+.cr-igacts { display: flex; flex-wrap: wrap; gap: 6px; }
+.cr-nomail { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--text2); cursor: pointer; }
+.cr-nomail input { accent-color: var(--accent); width: 15px; height: 15px; }
+.search:disabled { opacity: .55; cursor: not-allowed; }
