@@ -915,9 +915,16 @@ function asgPicker(people, everyone0, list0) {
         el('span', { class: 'grow' }), el('button', { type: 'button', class: 'btn sm', onclick: () => toggle(false) }, 'Fatto')));
   };
   const outside = (e) => { if (!wrap.contains(e.target)) toggle(false); };
+  const onScroll = (e) => { if (!pop.contains(e.target)) toggle(false); };
   const toggle = (on) => {
     pop.hidden = !on; btn.setAttribute('aria-expanded', String(on));
-    if (on) setTimeout(() => document.addEventListener('pointerdown', outside, true), 0); else document.removeEventListener('pointerdown', outside, true);
+    if (on) {   // sopra la finestra (che scorre e taglierebbe la lista): posizione fissa vicino al pulsante
+      const r = btn.getBoundingClientRect(), below = innerHeight - r.bottom - 12, h = Math.min(300, Math.max(below, r.top - 12));
+      Object.assign(pop.style, { left: r.left + 'px', width: Math.max(240, r.width) + 'px', maxHeight: h + 'px',
+        top: (below >= Math.min(300, pop.scrollHeight) || below >= r.top ? r.bottom + 6 : Math.max(8, r.top - 6 - Math.min(h, pop.scrollHeight))) + 'px' });
+    }
+    if (on) setTimeout(() => { document.addEventListener('pointerdown', outside, true); document.addEventListener('scroll', onScroll, true); }, 0);
+    else { document.removeEventListener('pointerdown', outside, true); document.removeEventListener('scroll', onScroll, true); }
   };
   btn.addEventListener('click', () => toggle(pop.hidden));
   paint();
