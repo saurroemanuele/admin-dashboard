@@ -153,7 +153,7 @@ const SUB = {
   'Team e permessi': 'Chi può entrare in questo pannello e cosa può fare.',
   Persone: 'Solo per i founder: quanto lavora ogni persona del team, creator trovati, email, risposte e task.',
   Creator: 'I creator trovati dal team. Con l\'email ricevono la bozza; senza email si scrivono su Instagram.',
-  'Email ai creator': 'Le bozze e l\'invio: ogni creator riceve la sua bozza con il suo nome, dalla casella ufficiale di NoonFrame.',
+  'Email e messaggi': 'Le bozze per i creator: le email partono dalla casella ufficiale di NoonFrame, i messaggi DM si copiano e incollano. {nome} si mette da solo, gli altri campi li completa chi assegna la bozza.',
   Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
   Messaggi: 'Avvisi e novità che arrivano nella campanella dell\'app.',
   Soldi: 'Quanto costano davvero le AI e quanti crediti sono ancora in giro.',
@@ -1047,6 +1047,22 @@ const igLink = (c) => { const x = (c.channels || []).find((h) => h.platform === 
 const crName = (e) => { const p = ((S.cr && S.cr.people) || []).find((x) => x.email === e); return p ? (p.name || e.split('@')[0]) : (e || '').split('@')[0]; };
 const crTpl = (id) => ((S.cr && S.cr.templates) || []).find((t) => t.id === id);
 const fillName = (t, n) => String(t || '').replace(/\{(nome|Nome|NOME)\}/g, n || '');
+// campi personalizzati delle bozze: {nome} viene dal creator, gli altri {campi} li completa chi assegna la bozza
+const TPL_FIELD_RE = /\{([^{}\n]{1,60})\}/g;
+function tplFields(t) {
+  const out = [];
+  if (!t) return out;
+  for (const str of [t.subject || '', t.body || '']) for (const m of str.matchAll(TPL_FIELD_RE)) { const k = m[1].trim(); if (k.toLowerCase() !== 'nome' && !out.includes(k)) out.push(k); }
+  return out;
+}
+// stesso calcolo di admin_api.mail_render: i campi lasciati vuoti spariscono
+function fillTpl(text, name, fills) {
+  let r = fillName(text, name);
+  for (const [k, v] of Object.entries(fills || {})) if (String(v || '').trim()) r = r.split('{' + k + '}').join(String(v).trim());
+  return r.replace(TPL_FIELD_RE, '').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([,.:;!?])/g, '$1').replace(/,([.:;!?])/g, '$1');
+}
+const tplKind = (t) => (t && t.kind === 'dm' ? 'dm' : 'email');
+const tplMissing = (c, t) => tplFields(t).filter((k) => !String(((c && c.fills) || {})[k] || '').trim());
 const EMAIL_RE = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/;
 function platOf(link) {
   const l = String(link || '').toLowerCase();
@@ -1055,8 +1071,10 @@ function platOf(link) {
 const safeLink = (u) => (/^https?:\/\//i.test(u || '') ? u : null);
 async function crReload(main) { try { S.cr = await sql('creators'); } catch (e) { toast(explain(e)); } if (S.view === 'creators') renderCreators(main); if (S.view === 'mail') renderMail(main); }
 function tplSelect(value, onchange, opts = {}) {
+  const all = (S.cr && S.cr.templates) || [];
+  const grp = (k, label) => { const l = all.filter((t) => tplKind(t) === k); return l.length ? el('optgroup', { label }, ...l.map((t) => el('option', { value: t.id, selected: value === t.id }, t.name))) : null; };
   const s = el('select', { class: 'search', 'aria-label': 'Bozza', ...(opts.attrs || {}) }, el('option', { value: '' }, opts.empty || 'Nessuna bozza'),
-    ...((S.cr && S.cr.templates) || []).map((t) => el('option', { value: t.id, selected: value === t.id }, t.name)));
+    grp('email', 'Email'), grp('dm', 'Messaggi DM (copia e incolla)'));
   if (onchange) s.addEventListener('change', () => onchange(s.value ? +s.value : null));
   return s;
 }
@@ -1072,7 +1090,7 @@ function renderCreators(main) {
   if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
   if (!C) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
   const F = [['all', 'Tutti'], ['ready', 'Pronti da mandare'], ['notpl', 'Senza bozza'], ['ig', 'Da scrivere su IG'], ['sent', 'Contattati'], ['replied', 'Hanno risposto'], ['err', 'Errori']];
-  const test = { all: () => true, ready: (c) => c.email && (c.status === 'nuovo' || c.status === 'errore') && c.template_id, notpl: (c) => c.email && !c.template_id && c.status === 'nuovo',
+  const test = { all: () => true, ready: (c) => c.email && (c.status === 'nuovo' || c.status === 'errore') && c.template_id && tplKind(crTpl(c.template_id)) === 'email', notpl: (c) => c.email && !c.template_id && c.status === 'nuovo',
     ig: (c) => !c.email && c.status === 'nuovo', sent: (c) => c.status === 'inviata' || c.status === 'in_coda' || c.status === 'ig', replied: (c) => c.status === 'risposto', err: (c) => c.status === 'errore' };
   S.crf = S.crf || 'all';
   const count = (k) => C.creators.filter(test[k]).length;
@@ -1122,11 +1140,12 @@ function renderCreators(main) {
         const cb = el('input', { type: 'checkbox', checked: S.crsel.has(c.id), 'aria-label': 'Seleziona ' + c.name });
         cb.addEventListener('change', () => { if (cb.checked) S.crsel.add(c.id); else S.crsel.delete(c.id); paintBulk(); allCb.checked = R.every((x) => S.crsel.has(x.id)); });
         const locked = c.status === 'in_coda' || c.status === 'inviata';
-        const tsel = tplSelect(c.template_id, async (tid) => {
-          try { Object.assign(c, await sql('creator_save', { id: c.id, template_id: tid })); toast(tid ? 'Bozza assegnata' : 'Bozza tolta'); }
-          catch (e) { toast(explain(e)); }
-          paintList();
-        }, { attrs: { disabled: locked ? true : null, class: 'search sm' } });
+        const ct = crTpl(c.template_id), miss = tplMissing(c, ct);
+        const tsel = locked ? el('span', { class: 'muted' }, ct ? ct.name : '—')
+          : el('button', { class: 'cr-tplbtn' + (ct ? '' : ' empty'), type: 'button', 'data-tip': ct ? 'Cambia bozza o completa i campi' : 'Scegli la bozza e completa i campi', onclick: () => fillsModal(c, main) },
+            el('span', { class: 'cr-tplk ' + (ct ? tplKind(ct) : '') }, ct ? (tplKind(ct) === 'dm' ? 'DM' : 'Email') : '＋'),
+            el('span', { class: 'cr-tpln' }, ct ? ct.name : 'Scegli bozza'),
+            ct && miss.length ? el('i', { class: 'cr-miss', title: 'Campi da completare: ' + miss.join(', ') }, miss.length) : null);
         const [stl, stc] = CR_ST[c.status] || [c.status, ''];
         return el('tr', { class: S.crsel.has(c.id) ? 'sel' : '' },
           el('td', { class: 'ck' }, cb),
@@ -1166,7 +1185,7 @@ function noMailCell(c, repaint) {
   const acts = el('div', { class: 'cr-igacts' },
     ig ? el('a', { class: 'btn sm', href: ig, target: '_blank', rel: 'noopener noreferrer' }, 'Apri Instagram') : null,
     t ? el('button', { class: 'btn sm ghost', type: 'button', title: 'Copia il testo della bozza con il suo nome, da incollare in DM', onclick: async () => {
-      try { await navigator.clipboard.writeText(fillName(t.body, c.name)); toast('Messaggio copiato: incollalo in DM'); } catch (e) { toast('Copia non riuscita'); }
+      try { await navigator.clipboard.writeText(fillTpl(t.body, c.name, c.fills)); toast('Messaggio copiato: incollalo in DM'); } catch (e) { toast('Copia non riuscita'); }
     } }, 'Copia messaggio') : null,
     c.status === 'nuovo' ? el('button', { class: 'btn sm ghost', type: 'button', onclick: async (e) => {
       e.currentTarget.disabled = true;
@@ -1175,6 +1194,50 @@ function noMailCell(c, repaint) {
     } }, 'Segna contattato') : null);
   if (acts.childNodes.length) box.append(acts);
   return box;
+}
+// i campi da completare di una bozza (tranne {nome}) e l'anteprima del messaggio per quel creator
+function fillFields(t, getName, fills, onInput) {
+  if (!t) return [];
+  const keys = tplFields(t);
+  const pv = el('div', { class: 'cr-fpv' });
+  const paint = () => rc(pv, el('div', { class: 'cr-fpv-h' }, el('b', null, 'Anteprima'), el('span', { class: 'muted' }, tplKind(t) === 'dm' ? 'messaggio da copiare in DM' : 'email')),
+    tplKind(t) === 'email' ? el('div', { class: 'mail-pv-s' }, 'Oggetto: ', el('b', null, fillTpl(t.subject, getName(), fills) || '—')) : null,
+    el('pre', null, fillTpl(t.body, getName(), fills)));
+  const rows = keys.map((k) => {
+    const i = el('input', { class: 'search', value: fills[k] || '', maxlength: '500', placeholder: 'Lascia vuoto per toglierlo dal messaggio', 'aria-label': k });
+    i.addEventListener('input', () => { fills[k] = i.value; paint(); if (onInput) onInput(); });
+    return el('label', { class: 'fld' }, el('span', null, '{' + k + '}'), i);
+  });
+  paint();
+  return [keys.length ? el('div', { class: 'cr-fhint' }, '{nome} lo prende dal nome del creator. Completa il resto per questo creator: quello che lasci vuoto sparisce dal messaggio.')
+    : el('div', { class: 'cr-fhint' }, 'Questa bozza non ha campi da completare: {nome} lo prende dal nome del creator.'),
+  keys.length ? el('div', { class: 'fgrid two cr-fgrid' }, ...rows) : null, pv];
+}
+// scegli la bozza di un creator e completa i suoi campi (dalla riga della lista)
+function fillsModal(c, main) {
+  let fills = { ...(c.fills || {}) };
+  const tpl = tplSelect(c.template_id, null, { empty: 'Nessuna bozza' });
+  const box = el('div', { class: 'cr-fills' });
+  const cur = () => crTpl(tpl.value ? +tpl.value : null);
+  const copyBtn = el('button', { class: 'btn', type: 'button', onclick: async () => {
+    const t = cur(); if (!t) return;
+    try { await navigator.clipboard.writeText(fillTpl(t.body, c.name, fills)); toast('Messaggio copiato: incollalo in DM'); } catch (e) { toast('Copia non riuscita'); }
+  } }, 'Copia messaggio');
+  const paint = () => { rc(box, ...fillFields(cur(), () => c.name, fills)); copyBtn.hidden = !cur(); };
+  tpl.addEventListener('change', paint); paint();
+  const close = () => { bg.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  const save = async () => {
+    try { Object.assign(c, await sql('creator_save', { id: c.id, template_id: tpl.value ? +tpl.value : null, fills })); close(); toast(tpl.value ? 'Bozza assegnata' : 'Bozza tolta'); renderCreators(main); }
+    catch (e) { toast(explain(e)); }
+  };
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal cr-modal', role: 'dialog', 'aria-label': 'Bozza per ' + c.name },
+    el('div', { class: 'row' }, el('h2', { class: 'grow' }, 'Bozza per ' + c.name), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
+    el('label', { class: 'fld' }, el('span', null, 'Bozza (email o messaggio)'), tpl), box,
+    el('div', { class: 'row' }, el('span', { class: 'grow' }), el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'), copyBtn, el('button', { class: 'btn primary', type: 'button', onclick: save }, 'Salva'))));
+  document.body.append(bg);
+  setTimeout(() => (box.querySelector('input') || tpl).focus(), 30);
 }
 function creatorModal(c, main) {
   const isNew = !c; c = c || { name: '', email: '', channels: [], template_id: (S.cr.templates[0] || {}).id || null, status: 'nuovo' };
@@ -1205,6 +1268,11 @@ function creatorModal(c, main) {
   };
   paintCh();
   const tpl = tplSelect(c.template_id, null);
+  let fills = { ...(c.fills || {}) };
+  const fillBox = el('div', { class: 'cr-fills' });
+  const paintFills = () => rc(fillBox, ...fillFields(crTpl(tpl.value ? +tpl.value : null), () => name.value.trim() || 'Nome', fills));
+  tpl.addEventListener('change', paintFills); name.addEventListener('input', () => fillBox.querySelector('.cr-fpv') && paintFills());
+  paintFills();
   const st = el('select', { class: 'search', 'aria-label': 'Stato', disabled: c.status === 'in_coda' ? true : null },
     ...[['nuovo', 'Da contattare'], ['ig', 'Contattato su IG'], ['risposto', 'Ha risposto'], ['no', 'Non contattare']].map(([v, l]) => el('option', { value: v, selected: c.status === v }, l)),
     ['inviata', 'in_coda', 'errore'].includes(c.status) ? el('option', { value: '', selected: true }, CR_ST[c.status][0]) : null);
@@ -1220,7 +1288,7 @@ function creatorModal(c, main) {
       let link = r.link.trim(); if (link && !/^https?:\/\//i.test(link) && /\.[a-z]{2,}\//i.test(link)) link = 'https://' + link;
       channels.push({ platform: r.platform || platOf(link) || 'altro', link, followers: f });
     }
-    const patch = { name: name.value.trim(), email: email.value.trim(), channels, template_id: tpl.value ? +tpl.value : null };
+    const patch = { name: name.value.trim(), email: email.value.trim(), channels, template_id: tpl.value ? +tpl.value : null, fills };
     if (!patch.name) { name.focus(); toast('Scrivi il nome'); return; }
     if (noMail.checked) {
       patch.email = '';
@@ -1231,7 +1299,7 @@ function creatorModal(c, main) {
       const r = await sql('creator_save', isNew ? patch : { id: c.id, ...patch });
       if (isNew) S.cr.creators.unshift(r); else Object.assign(S.cr.creators.find((x) => x.id === c.id) || {}, r);
       toast(isNew ? r.name + ' aggiunto' : 'Salvato');
-      if (again) { name.value = ''; email.value = ''; noMail.checked = false; syncMail(); rows = [{ platform: '', link: '', followers: '' }]; paintCh(); name.focus(); renderCreators(main); return; }
+      if (again) { name.value = ''; email.value = ''; noMail.checked = false; syncMail(); fills = {}; paintFills(); rows = [{ platform: '', link: '', followers: '' }]; paintCh(); name.focus(); renderCreators(main); return; }
       close(); renderCreators(main);
     } catch (e) { toast(explain(e)); }
   }
@@ -1245,7 +1313,8 @@ function creatorModal(c, main) {
     el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuovo creator' : c.name), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
     el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Nome'), name), el('div', { class: 'fld' }, el('span', null, 'Email'), email, el('label', { class: 'cr-nomail' }, noMail, el('span', null, 'Nessuna email (lo contattiamo su Instagram)')))),
     el('div', { class: 'fld' }, el('span', null, 'Piattaforme e follower'), chBox),
-    el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Bozza da mandare'), tpl), isNew ? el('span') : el('label', { class: 'fld' }, el('span', null, 'Stato'), st)),
+    el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Bozza (email o messaggio)'), tpl), isNew ? el('span') : el('label', { class: 'fld' }, el('span', null, 'Stato'), st)),
+    fillBox,
     el('p', { class: 'muted', style: 'margin:0;font-size:12px' }, isNew ? 'Trovato da: ' + crName(ME.email) + ' (preso dal tuo account). Invio: salva e passa al prossimo.'
       : 'Trovato da ' + crName(c.added_by) + ' ' + when(c.created_at) + (c.sent_at ? ' · mail inviata ' + when(c.sent_at) : '') + (c.last_error ? ' · errore: ' + c.last_error : '')),
     el('div', { class: 'row' }, del, el('span', { class: 'grow' }), el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'),
@@ -1308,7 +1377,7 @@ function renderMail(main) {
   const C = S.cr;
   clearTimeout(mailTimer);
   const body = el('div', { class: 'body mail-body' });
-  rc(main, head('Email ai creator', el('button', { class: 'btn primary', type: 'button', onclick: () => templateModal(null, main) }, '＋ Nuova bozza')), body);
+  rc(main, head('Email e messaggi', el('button', { class: 'btn primary', type: 'button', onclick: () => templateModal(null, main) }, '＋ Nuova bozza')), body);
   if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
   if (!C) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
   const canSend = CAN('creators_send');
@@ -1320,11 +1389,11 @@ function renderMail(main) {
     : el('div', { class: 'mail-state warn' }, el('i'), el('span', null, el('b', null, 'Casella Hostinger da collegare. '), 'In Supabase → Edge Functions → Secrets aggiungi HOSTINGER_SMTP_USER (l\'email ufficiale di NoonFrame) e HOSTINGER_SMTP_PASS (la sua password). Finché manca, le email restano in coda.'));
   // bozze
   const tpls = el('div', { class: 'tpl-grid' }, ...(C.templates.length ? C.templates.map((t) => el('button', { class: 'tpl-card', type: 'button', onclick: () => templateModal(t, main) },
-    el('b', null, t.name), el('span', { class: 'tpl-sub' }, fillName(t.subject, 'Mario')), el('span', { class: 'tpl-body' }, fillName(t.body, 'Mario').slice(0, 160)),
+    el('b', null, el('span', { class: 'cr-tplk ' + tplKind(t) }, tplKind(t) === 'dm' ? 'DM' : 'Email'), ' ', t.name), tplKind(t) === 'email' ? el('span', { class: 'tpl-sub' }, fillName(t.subject, 'Mario')) : el('span', { class: 'tpl-sub' }, 'Da copiare e incollare in DM'), el('span', { class: 'tpl-body' }, fillName(t.body, 'Mario').slice(0, 160)),
     el('small', { class: 'muted' }, (t.used ? t.used + (t.used === 1 ? ' creator' : ' creator') : 'Non ancora assegnata') + ' · ' + crName(t.created_by)))) :
-    [el('div', { class: 'empty cr-empty' }, el('b', null, 'Nessuna bozza'), el('p', null, 'Scrivi la prima: usa {nome} dove va il nome del creator.'))]));
+    [el('div', { class: 'empty cr-empty' }, el('b', null, 'Nessuna bozza'), el('p', null, 'Scrivi la prima: usa {nome} dove va il nome del creator e altri {campi} tra graffe per le parti da personalizzare.'))]));
   // pronte da mandare
-  const ready = C.creators.filter((c) => c.email && (c.status === 'nuovo' || c.status === 'errore') && c.template_id && crTpl(c.template_id));
+  const ready = C.creators.filter((c) => c.email && (c.status === 'nuovo' || c.status === 'errore') && c.template_id && crTpl(c.template_id) && tplKind(crTpl(c.template_id)) === 'email');
   S.mailsel = S.mailsel && S.mailsel.size ? new Set([...S.mailsel].filter((id) => ready.some((c) => c.id === id))) : new Set(ready.map((c) => c.id));
   const readyBox = el('section', { class: 'mail-sec' });
   const paintReady = () => {
@@ -1349,8 +1418,9 @@ function renderMail(main) {
             const cb = el('input', { type: 'checkbox', checked: S.mailsel.has(c.id), 'aria-label': 'Manda a ' + c.name });
             cb.addEventListener('change', () => { if (cb.checked) S.mailsel.add(c.id); else S.mailsel.delete(c.id); paintReady(); });
             const pv = el('details', { class: 'mail-pv' }, el('summary', null, el('span', { class: 'mail-to' }, el('b', null, c.name), ' ', el('span', { class: 'muted' }, c.email)),
-              el('span', { class: 'mail-subj' }, fillName(t.subject, c.name)), c.status === 'errore' ? el('span', { class: 'pill bad', title: c.last_error || '' }, 'Riprova') : null),
-              el('div', { class: 'mail-pv-b' }, el('div', { class: 'mail-pv-s' }, 'Oggetto: ', el('b', null, fillName(t.subject, c.name))), el('pre', null, fillName(t.body, c.name))));
+              el('span', { class: 'mail-subj' }, fillTpl(t.subject, c.name, c.fills)), tplMissing(c, t).length ? el('span', { class: 'pill', title: 'Campi vuoti: ' + tplMissing(c, t).join(', ') }, tplMissing(c, t).length + ' campi vuoti') : null, c.status === 'errore' ? el('span', { class: 'pill bad', title: c.last_error || '' }, 'Riprova') : null),
+              el('div', { class: 'mail-pv-b' }, el('div', { class: 'mail-pv-s' }, 'Oggetto: ', el('b', null, fillTpl(t.subject, c.name, c.fills))), el('pre', null, fillTpl(t.body, c.name, c.fills)),
+                el('button', { class: 'btn sm', type: 'button', onclick: () => fillsModal(c, main) }, 'Completa i campi')));
             return el('div', { class: 'mail-row' }, cb, pv);
           }));
       }));
@@ -1378,18 +1448,22 @@ function renderMail(main) {
       el('td', { class: 'hide-m' }, m.subject),
       el('td', null, el('span', { class: 'pill ' + (MS[m.status] || ['', ''])[1], title: m.error || '' }, (MS[m.status] || [m.status])[0])),
       el('td', { class: 'hide-m muted' }, when(m.sent_at || m.created_at) + ' · ' + crName(m.created_by))))))) : el('p', { class: 'muted' }, 'Ancora nessuna email.'));
-  rc(body, smtpBox, el('section', { class: 'mail-sec' }, el('h2', null, 'Bozze'), tpls), readyBox, qBox, log);
+  rc(body, smtpBox, el('section', { class: 'mail-sec' }, el('h2', null, 'Bozze: email e messaggi DM'), tpls), readyBox, qBox, log);
   if (Q.pending) mailTimer = setTimeout(() => { if (S.view === 'mail' && !document.querySelector('.modal-bg')) crReload(main); }, 15000);
 }
 
 function templateModal(t, main) {
-  const isNew = !t; t = t || { name: '', subject: '', body: 'Ciao {nome},\n\n' };
+  const isNew = !t; t = t || { name: '', kind: 'email', subject: '', body: 'Ciao {nome},\n\n' };
+  let kind = tplKind(t);
   const name = el('input', { class: 'search', placeholder: 'Nome della bozza (lo vede solo il team)', value: t.name, maxlength: '80', 'aria-label': 'Nome della bozza' });
   const subj = el('input', { class: 'search', placeholder: 'Oggetto della mail', value: t.subject, maxlength: '200', 'aria-label': 'Oggetto' });
   const text = el('textarea', { class: 'note tpl-text', maxlength: '20000', 'aria-label': 'Testo della mail' }); text.value = t.body;
   const sample = el('input', { class: 'search sm', value: 'Mario', style: 'width:120px', 'aria-label': 'Nome di esempio' });
   const pv = el('div', { class: 'tpl-pv' });
-  const paint = () => rc(pv, el('div', { class: 'mail-pv-s' }, 'Oggetto: ', el('b', null, fillName(subj.value, sample.value) || '—')), el('pre', null, fillName(text.value, sample.value)));
+  const paint = () => rc(pv, kind === 'email' ? el('div', { class: 'mail-pv-s' }, 'Oggetto: ', el('b', null, fillName(subj.value, sample.value) || '—')) : null, el('pre', null, fillName(text.value, sample.value)),
+    tplFields({ subject: kind === 'email' ? subj.value : '', body: text.value }).length ? el('p', { class: 'muted', style: 'font-size:12px;margin:8px 0 0' }, 'Campi da completare per ogni creator: ' + tplFields({ subject: kind === 'email' ? subj.value : '', body: text.value }).map((k) => '{' + k + '}').join(', ')) : null);
+  const kindSeg = el('div', { class: 'seg' });
+  const paintKind = () => { rc(kindSeg, ...[['email', 'Email'], ['dm', 'Messaggio DM']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(kind === k), onclick: () => { kind = k; paintKind(); paint(); } }, l))); subj.hidden = kind !== 'email'; if (testBtn) testBtn.hidden = kind !== 'email'; };
   [subj, text, sample].forEach((i) => i.addEventListener('input', paint)); paint();
   let lastFocus = text;
   [subj, text].forEach((i) => i.addEventListener('focus', () => { lastFocus = i; }));
@@ -1402,13 +1476,13 @@ function templateModal(t, main) {
   document.addEventListener('keydown', esc);
   const save = async () => {
     try {
-      const r = await sql('template_save', { id: isNew ? null : t.id, name: name.value, subject: subj.value, body: text.value });
+      const r = await sql('template_save', { id: isNew ? null : t.id, name: name.value, kind, subject: subj.value, body: text.value });
       close(); toast(isNew ? 'Bozza creata' : 'Bozza salvata'); await crReload(main); return r;
     } catch (e) { toast(explain(e)); return null; }
   };
   const testBtn = !isNew && CAN('creators_send') ? el('button', { class: 'btn', type: 'button', onclick: async (e) => {
     e.currentTarget.disabled = true;
-    try { await sql('template_save', { id: t.id, name: name.value, subject: subj.value, body: text.value }); const r = await sql('mail_test', { template_id: t.id, name: sample.value }); toast('Prova in arrivo a ' + r.to); }
+    try { await sql('template_save', { id: t.id, name: name.value, kind, subject: subj.value, body: text.value }); const r = await sql('mail_test', { template_id: t.id, name: sample.value }); toast('Prova in arrivo a ' + r.to); }
     catch (x) { toast(explain(x)); }
     e.currentTarget.disabled = false;
   } }, 'Manda una prova a me') : null;
@@ -1420,9 +1494,10 @@ function templateModal(t, main) {
   const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal tpl-modal', role: 'dialog', 'aria-label': isNew ? 'Nuova bozza' : 'Bozza' },
     el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuova bozza' : 'Bozza'), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
     el('div', { class: 'tpl-cols' },
-      el('div', { class: 'tpl-ed' }, name, subj, text, el('div', { class: 'row' }, insName, el('span', { class: 'muted', style: 'font-size:12px' }, '{nome} diventa il nome di ogni creator. Consiglio: chiudi con una riga per chi non vuole altre email.'))),
+      el('div', { class: 'tpl-ed' }, kindSeg, name, subj, text, el('div', { class: 'row' }, insName, el('span', { class: 'muted', style: 'font-size:12px' }, '{nome} diventa il nome di ogni creator. Le altre parti tra graffe, per esempio {riferimento live/clip}, le completa chi assegna la bozza.'))),
       el('div', { class: 'tpl-side' }, el('div', { class: 'row' }, el('b', { class: 'grow' }, 'Anteprima'), el('span', { class: 'muted' }, 'con'), sample), pv)),
     el('div', { class: 'row' }, del, el('span', { class: 'grow' }), testBtn, el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'), el('button', { class: 'btn primary', type: 'button', onclick: save }, isNew ? 'Crea bozza' : 'Salva'))));
+  paintKind();
   document.body.append(bg);
   setTimeout(() => (isNew ? name : text).focus(), 30);
 }
