@@ -848,7 +848,18 @@ const dueInfo = (due, done) => {
   const late = !done && days < 0, soon = !done && days >= 0 && days <= 1;
   return { label: days === 0 ? 'Oggi' : days === 1 ? 'Domani' : shortDay(due), cls: late ? 'late' : soon ? 'soon' : '' };
 };
-function myOpenTasks() { return ((S.tasks && S.tasks.tasks) || []).filter((k) => k.assignee === (ME && ME.email) && k.status !== 'done').length; }
+// persone di una task: piu' persone (assignees) o tutto il team (everyone); le vecchie task hanno solo assignee
+const asgList = (k) => (k.assignees && k.assignees.length ? k.assignees : k.assignee ? [k.assignee] : []);
+const isMine = (k) => !!(k.everyone || asgList(k).includes(ME && ME.email));
+const unassigned = (k) => !k.everyone && !asgList(k).length;
+function asgLabel(everyone, list) {
+  if (everyone) return 'Tutto il team';
+  if (!list.length) return 'Nessuno';
+  if (list.length === 1) return personName(list[0]);
+  if (list.length === 2) return personName(list[0]) + ' e ' + personName(list[1]);
+  return list.length + ' persone';
+}
+function myOpenTasks() { return ((S.tasks && S.tasks.tasks) || []).filter((k) => isMine(k) && k.status !== 'done').length; }
 function renderTasks(main) {
   const T = S.tasks;
   const seg = el('div', { class: 'seg' }, ...[['all', 'Tutte'], ['mine', 'Mie'], ['none', 'Da assegnare']].map(([k, l]) =>
@@ -860,7 +871,7 @@ function renderTasks(main) {
   rc(main, head('Task', seg, who, el('button', { class: 'btn primary', type: 'button', onclick: () => taskModal(null, {}, main) }, '＋ Nuova task')), body);
   if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
   if (!T) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
-  const show = (k) => (S.tf !== 'mine' || k.assignee === ME.email) && (S.tf !== 'none' || !k.assignee) && (!S.tp || k.assignee === S.tp);
+  const show = (k) => (S.tf !== 'mine' || isMine(k)) && (S.tf !== 'none' || unassigned(k)) && (!S.tp || k.everyone || asgList(k).includes(S.tp));
   const tasks = T.tasks.filter(show);
   const board = el('div', { class: 'board' });
   for (const [st, label] of TST) {
@@ -877,6 +888,41 @@ function renderTasks(main) {
   }
   rc(body, board);
 }
+function taskAvatars(k) {
+  if (k.everyone) return el('span', { class: 'tk-av all', title: 'Tutto il team' }, 'Tutti');
+  const L = asgList(k);
+  if (!L.length) return el('span', { class: 'tk-av none', title: 'Da assegnare' }, '?');
+  const shown = L.slice(0, 3);
+  return el('span', { class: 'tk-avs', title: L.map(personName).join(', ') }, ...shown.map((e) => el('span', { class: 'tk-av' }, initials(e))),
+    L.length > 3 ? el('span', { class: 'tk-av more' }, '+' + (L.length - 3)) : null);
+}
+// scelta delle persone: tutto il team oppure una o piu' persone
+function asgPicker(people, everyone0, list0) {
+  let everyone = !!everyone0, sel = new Set(list0);
+  const btn = el('button', { class: 'search asg-btn', type: 'button', 'aria-haspopup': 'true', 'aria-expanded': 'false' });
+  const pop = el('div', { class: 'asg-pop', hidden: true, role: 'group', 'aria-label': 'Assegnata a' });
+  const wrap = el('div', { class: 'asg' }, btn, pop);
+  const paint = () => {
+    btn.textContent = asgLabel(everyone, [...sel]);
+    const opt = (on, label, onclick, sub) => el('button', { type: 'button', class: 'asg-o', role: 'checkbox', 'aria-checked': String(on), onclick },
+      el('span', { class: 'asg-ck' }, on ? '✓' : ''), el('span', { class: 'grow' }, label), sub ? el('small', null, sub) : null);
+    rc(pop,
+      opt(everyone, 'Tutto il team', () => { everyone = !everyone; if (everyone) sel.clear(); paint(); }, people.length + ' persone'),
+      el('div', { class: 'asg-sep' }),
+      ...people.map((p) => opt(!everyone && sel.has(p.email), (p.name || p.email) + (p.email === ME.email ? ' (tu)' : ''), () => {
+        everyone = false; if (sel.has(p.email)) sel.delete(p.email); else sel.add(p.email); paint(); })),
+      el('div', { class: 'asg-foot' }, el('button', { type: 'button', class: 'linkish', onclick: () => { everyone = false; sel.clear(); paint(); } }, 'Nessuno'),
+        el('span', { class: 'grow' }), el('button', { type: 'button', class: 'btn sm', onclick: () => toggle(false) }, 'Fatto')));
+  };
+  const outside = (e) => { if (!wrap.contains(e.target)) toggle(false); };
+  const toggle = (on) => {
+    pop.hidden = !on; btn.setAttribute('aria-expanded', String(on));
+    if (on) setTimeout(() => document.addEventListener('pointerdown', outside, true), 0); else document.removeEventListener('pointerdown', outside, true);
+  };
+  btn.addEventListener('click', () => toggle(pop.hidden));
+  paint();
+  return { el: wrap, value: () => ({ everyone, assignees: everyone ? [] : [...sel] }) };
+}
 function taskCard(k, main) {
   const due = dueInfo(k.due, k.status === 'done');
   const c = el('button', { class: 'tk' + (k.priority === 2 ? ' hi' : ''), type: 'button', draggable: 'true', 'data-id': k.id, onclick: () => taskModal(k, {}, main) },
@@ -888,7 +934,7 @@ function taskCard(k, main) {
       k.comments ? el('span', { class: 'chip ghost', title: k.comments + ' commenti' }, '💬 ' + k.comments) : null,
       k.report_id ? el('span', { class: 'chip ghost', title: 'Collegata a una segnalazione' }, 'Segnalazione') : null,
       el('span', { class: 'grow' }),
-      k.assignee ? el('span', { class: 'tk-av', title: personName(k.assignee) }, initials(k.assignee)) : el('span', { class: 'tk-av none', title: 'Da assegnare' }, '?')));
+      taskAvatars(k)));
   c.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', String(k.id)); e.dataTransfer.effectAllowed = 'move'; c.classList.add('drag'); });
   c.addEventListener('dragend', () => c.classList.remove('drag'));
   return c;
@@ -913,7 +959,7 @@ async function dropTask(id, st, list, y, main) {
 }
 async function taskModal(k, def, main) {
   if (!S.tasks) { try { S.tasks = await sql('tasks'); } catch (e) { toast(explain(e)); return; } }
-  const isNew = !k; k = k || { title: '', notes: '', status: 'todo', priority: 1, assignee: null, due: null, area: '', ...def };
+  const isNew = !k; k = k || { title: '', notes: '', status: 'todo', priority: 1, assignee: null, assignees: [], everyone: false, due: null, area: '', ...def };
   const title = el('input', { class: 'search tk-title', placeholder: 'Cosa c\'è da fare?', value: k.title, maxlength: '200', 'aria-label': 'Titolo' });
   const notes = el('textarea', { class: 'note', placeholder: 'Dettagli, link, come capire che è finita…', maxlength: '4000', 'aria-label': 'Dettagli' }); notes.value = k.notes || '';
   const status = el('select', { class: 'search' }, ...TST.map(([v, l]) => el('option', { value: v, selected: k.status === v }, l)));
@@ -921,7 +967,7 @@ async function taskModal(k, def, main) {
   const prioSeg = el('div', { class: 'seg' });
   const paintPrio = () => rc(prioSeg, ...PRIO.map(([v, l]) => el('button', { type: 'button', 'aria-pressed': String(prio === v), onclick: () => { prio = v; paintPrio(); } }, l)));
   paintPrio();
-  const asg = el('select', { class: 'search' }, el('option', { value: '' }, 'Nessuno'), ...S.tasks.people.map((p) => el('option', { value: p.email, selected: k.assignee === p.email }, (p.name || p.email) + (p.email === ME.email ? ' (tu)' : ''))));
+  const asg = asgPicker(S.tasks.people, k.everyone, asgList(k));
   const due = el('input', { class: 'search', type: 'date', value: k.due || '' });
   const areas = [...new Set([...AREAS_DEF, ...(S.tasks.areas || [])])];
   const area = el('input', { class: 'search', list: 'tk-areas', placeholder: 'es. Marketing', value: k.area || '', maxlength: '30' });
@@ -945,13 +991,13 @@ async function taskModal(k, def, main) {
   const save = async (e) => {
     const ti = title.value.trim(); if (!ti) { title.focus(); toast('Scrivi cosa c\'è da fare'); return; }
     e.currentTarget.disabled = true;
-    const patch = { title: ti, notes: notes.value, status: status.value, priority: +prio, assignee: asg.value || null, due: due.value || null, area: area.value.trim() || null };
+    const patch = { title: ti, notes: notes.value, status: status.value, priority: +prio, ...asg.value(), due: due.value || null, area: area.value.trim() || null };
     if (isNew && k.report_id) patch.report_id = k.report_id;
     try {
       const r = await sql('task_save', isNew ? patch : { id: k.id, ...patch });
       if (isNew) S.tasks.tasks.push(r); else Object.assign(S.tasks.tasks.find((x) => x.id === k.id) || {}, r);
       if (r.area && !S.tasks.areas.includes(r.area)) S.tasks.areas.push(r.area);
-      close(); toast(isNew ? 'Task creata' + (r.assignee && r.assignee !== ME.email ? ' e assegnata a ' + personName(r.assignee) : '') : 'Task salvata');
+      close(); toast(isNew ? 'Task creata' + (r.everyone || (asgList(r).length && !(asgList(r).length === 1 && asgList(r)[0] === ME.email)) ? ' e assegnata a ' + asgLabel(r.everyone, asgList(r)) : '') : 'Task salvata');
       ME.my_tasks = myOpenTasks(); paintMe(); if (S.view === 'tasks') renderTasks(main);
     } catch (x) { e.currentTarget.disabled = false; toast(explain(x)); }
   };
@@ -960,7 +1006,7 @@ async function taskModal(k, def, main) {
   const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal tk-modal', role: 'dialog', 'aria-label': isNew ? 'Nuova task' : 'Task' },
     el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuova task' : 'Task'), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
     title, notes,
-    el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Stato'), status), el('label', { class: 'fld' }, el('span', null, 'Assegnata a'), asg),
+    el('div', { class: 'fgrid' }, el('label', { class: 'fld' }, el('span', null, 'Stato'), status), el('div', { class: 'fld' }, el('span', null, 'Assegnata a'), asg.el),
       el('label', { class: 'fld' }, el('span', null, 'Scadenza'), due), el('label', { class: 'fld' }, el('span', null, 'Area'), area, dl)),
     el('div', { class: 'fld' }, el('span', null, 'Priorità'), prioSeg),
     k.report_id ? el('div', { class: 'row' }, el('span', { class: 'muted' }, 'Collegata a una segnalazione'), CAN('reports') ? el('button', { class: 'linkish', type: 'button', onclick: () => { close(); S.rsel = k.report_id; S.rtab = 'all'; go('reports'); } }, 'Apri') : null) : null,
