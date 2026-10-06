@@ -587,6 +587,8 @@ a.ch:hover { border-color: var(--line2); }
 .cr-igacts { display: flex; flex-wrap: wrap; gap: 6px; }
 .cr-nomail { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--text2); cursor: pointer; }
 .cr-nomail input { accent-color: var(--accent); width: 15px; height: 15px; }
+.cr-dup { margin-top: -4px; padding: 9px 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.45; color: var(--bug); background: var(--bug-soft); border: 1px solid rgba(255,123,114,.3); }
+.cr-dup[hidden] { display: none; }
 .search:disabled { opacity: .55; cursor: not-allowed; }
 /* bozze assegnate ai creator: tipo, nome, campi da completare */
 .cr-tplbtn { display: inline-flex; align-items: center; gap: 8px; max-width: 230px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--raised); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; text-align: left; }
@@ -604,3 +606,12 @@ a.ch:hover { border-color: var(--line2); }
 .cr-fpv-h { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; font-size: 12px; }
 .cr-fpv pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var(--font); font-size: 13px; line-height: 1.5; color: var(--text); }
 .tpl-card b .cr-tplk { vertical-align: 1px; }
+/* sito: tabella delle provenienze dentro una card */
+.site-tbl { width: 100%; }
+.site-tbl th { position: static; background: transparent; padding: 6px 4px; }
+.site-tbl td { padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.site-tbl tr:last-child td { border-bottom: 0; }
+.site-tbl .r { text-align: right; font-variant-numeric: tabular-nums; }
+.site-tbl td:first-child { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .site-tbl th, .site-tbl td { padding-inline: 3px; font-size: 12.5px; } }
+.cards > .card { min-width: 0; }

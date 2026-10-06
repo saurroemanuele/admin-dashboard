@@ -74,7 +74,7 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', site: 'launch', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
@@ -105,6 +105,7 @@ async function load(view, force) {
     if (view === 'beta' && (force || !S.beta)) S.beta = await sql('beta_list');
     if (view === 'shop' && (force || !S.shop)) S.shop = await sql('catalog', { op: 'list' });
     if (view === 'launch' && (force || !S.launch)) S.launch = await sql('launch');
+    if (view === 'site' && (force || !S.site)) S.site = await sql('site', { days: S.sdays || 30 });
     if (view === 'status' && (force || !S.status)) S.status = await sql('status');
     if (view === 'messages' && (force || !S.messages)) S.messages = await sql('messages');
     if (view === 'money' && (force || !S.money)) S.money = await sql('money', { days: S.mdays || 30 });
@@ -131,6 +132,7 @@ function render() {
   if (S.view === 'beta') renderBeta(main);
   if (S.view === 'shop') renderShop(main);
   if (S.view === 'launch') renderLaunch(main);
+  if (S.view === 'site') renderSite(main);
   if (S.view === 'tasks') renderTasks(main);
   if (S.view === 'creators') renderCreators(main);
   if (S.view === 'people') renderPeople(main);
@@ -149,6 +151,7 @@ const SUB = {
   'Beta tester': 'Chi può provare le versioni nuove prima di tutti.',
   'Crediti e offerte': 'Prezzi dei piani, ricariche e offerte lampo che vedono gli utenti nell\'app.',
   Lancio: 'I numeri del lancio confrontati con gli obiettivi. Non contano le persone del team.',
+  Sito: 'Chi visita noonframe.com, da dove arriva e quanti scaricano. Conteggi anonimi, senza cookie.',
   Task: 'Le cose da fare del team. Trascina una card per cambiarne lo stato.',
   'Team e permessi': 'Chi può entrare in questo pannello e cosa può fare.',
   Persone: 'Solo per i founder: quanto lavora ogni persona del team, creator trovati, email, risposte e task.',
@@ -792,6 +795,74 @@ function renderLaunch(main) {
       + (L.dl.has_base ? '' : 'Prima del lancio non c\'era un conteggio, quindi includono anche i ' + num(L.dl.all_time) + ' download di prova fatti finora. ')
       + 'Non raccogliamo niente di chi visita il sito.')));
 }
+// ------------------------------------------------------------------ sito: visite anonime di noonframe.com
+const SRC_NAME = { diretto: 'Diretto o link senza provenienza', 'tiktok.com': 'TikTok', 'instagram.com': 'Instagram', 'l.instagram.com': 'Instagram', 'youtube.com': 'YouTube', 'm.youtube.com': 'YouTube',
+  'google.com': 'Google', 'google.it': 'Google', 'bing.com': 'Bing', 'twitch.tv': 'Twitch', 'kick.com': 'Kick', 'x.com': 'X', 't.co': 'X', 'facebook.com': 'Facebook', 'l.facebook.com': 'Facebook',
+  'm.facebook.com': 'Facebook', 'linkedin.com': 'LinkedIn', 'lnkd.in': 'LinkedIn', 'reddit.com': 'Reddit', 'discord.com': 'Discord', 'tiktok': 'TikTok', 'instagram': 'Instagram', 'youtube': 'YouTube' };
+const TAB_NAME = { clip: 'Clip AI', editor: 'Editor', grafica: 'Grafica', 'video-ai': 'Video AI' };
+const DEV_NAME = { desktop: 'Computer', mobile: 'Telefono', tablet: 'Tablet' };
+function renderSite(main) {
+  S.sdays = S.sdays || 30;
+  const seg = el('div', { class: 'seg' }, ...[[1, 'Oggi'], [7, '7 giorni'], [30, '30 giorni'], [90, '90 giorni']].map(([d, l]) =>
+    el('button', { type: 'button', 'aria-pressed': String(S.sdays === d), onclick: async () => { S.sdays = d; S.site = null; renderSite(main); try { S.site = await sql('site', { days: d }); S.err = null; } catch (e) { S.err = explain(e); } renderSite(main); } }, l)));
+  const body = el('div', { class: 'body' });
+  rc(main, head('Sito', seg), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  const W = S.site; if (!W) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const kpi = (v, label, sub, cls) => el('div', { class: 'kpi' + (cls ? ' ' + cls : '') }, el('b', null, v), el('span', null, label), sub ? el('small', null, sub) : null);
+  const clicked = W.funnel.clicked || 0;
+  const conv = W.visits ? Math.round(clicked / W.visits * 1000) / 10 : null;
+  const per = S.sdays === 1 ? 'oggi' : 'negli ultimi ' + S.sdays + ' giorni';
+  const steps = [['Visite', W.funnel.visits], ['Arrivano ai prezzi', W.funnel.price], ['Arrivano al download', W.funnel.download], ['Scaricano o chiedono il link', clicked]];
+  const srcRows = (list, col = 'Da dove') => list.length ? el('table', { class: 'tbl site-tbl' },
+    el('thead', null, el('tr', null, el('th', null, col), el('th', { class: 'r' }, 'Visite'), el('th', { class: 'r' }, 'Scaricano'), el('th', { class: 'r' }, '%'))),
+    el('tbody', null, ...list.map((x) => el('tr', null, el('td', null, SRC_NAME[x.k] || x.k), el('td', { class: 'r' }, num(x.n)), el('td', { class: 'r' }, num(x.dl)),
+      el('td', { class: 'r muted' }, x.n ? Math.round(x.dl / x.n * 100) + '%' : '—'))))) : el('p', { class: 'muted', style: 'margin:0' }, 'Nessun dato');
+  const obj = (o, names) => Object.entries(o || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => [(names && names[k]) || k, v]);
+  rc(body, el('div', { class: 'ov' },
+    el('div', { class: 'kpis' },
+      kpi(num(W.today), 'Visite oggi', 'Ieri ' + num(W.yesterday)),
+      kpi(num(W.visits), 'Visite', per),
+      kpi(num(clicked), 'Scaricano o chiedono il link', conv == null ? 'Ancora nessuna visita' : conv + '% delle visite · Windows ' + num(W.dl_win) + ' · Mac ' + num(W.dl_mac) + ' · email ' + num(W.mails)),
+      kpi(num(W.live), 'Sul sito adesso', 'Negli ultimi 30 minuti', W.live ? 'hot' : 'dim')),
+    S.sdays > 1 ? el('div', { class: 'cards' },
+      el('div', { class: 'card chart', style: 'grid-column:1/-1' }, el('h2', null, 'Giorno per giorno',
+        el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:#6EA5FF' }), 'Visite'), el('span', null, el('i', { style: 'background:#34D399' }), 'Click su Scarica'))),
+        siteChart(W.series))) : null,
+    el('div', { class: 'cards' },
+      el('div', { class: 'card' }, el('h2', null, 'Da dove arrivano'), srcRows(W.sources || [])),
+      el('div', { class: 'card' }, el('h2', null, 'Fin dove arrivano'), funnel(steps))),
+    el('div', { class: 'cards' },
+      el('div', { class: 'card' }, el('h2', null, 'Campagne'), (W.campaigns || []).length ? srcRows(W.campaigns, 'Campagna')
+        : el('p', { class: 'muted', style: 'margin:0' }, 'Nessuna campagna. Aggiungi ?utm_source=tiktok&utm_campaign=nome ai link che pubblichi per vederle qui separate.')),
+      el('div', { class: 'card' }, el('h2', null, 'Dispositivi'), barList(obj(W.devices, DEV_NAME)), el('h2', { style: 'margin-top:18px' }, 'Sistema'), barList(obj(W.os)))),
+    el('div', { class: 'cards' },
+      el('div', { class: 'card' }, el('h2', null, 'Lingua della pagina'), barList(obj(W.langs, { it: 'Italiano', en: 'Inglese' }))),
+      el('div', { class: 'card' }, el('h2', null, 'Schede guardate in "Cosa fa"'), barList(obj(W.tabs, TAB_NAME)))),
+    el('p', { class: 'muted fine' }, 'Conteggi anonimi: niente cookie e niente IP salvato. Una visita è una persona in un giorno. Chi ha attivato "non tracciare" nel browser non viene contato, quindi i numeri veri sono un po\' più alti.')));
+}
+function siteChart(series) {
+  const W = 600, H = 200, P = { l: 28, r: 8, t: 10, b: 22 };
+  const s = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Visite e click su Scarica per giorno' });
+  const days = series || [];
+  const max = Math.max(1, ...days.map((d) => Math.max(d.visits || 0, d.dl || 0)));
+  const nice = max <= 4 ? 4 : Math.ceil(max / 4) * 4;
+  const step = (W - P.l - P.r) / Math.max(1, days.length);
+  const x = (i) => P.l + (i + 0.5) * step, y = (v) => H - P.b - v / nice * (H - P.t - P.b);
+  for (let k = 0; k <= 4; k++) {
+    const v = nice * k / 4, yy = y(v);
+    s.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(160,180,220,.1)' }));
+    const t = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#6F7A8E', 'font-size': 10 }); t.textContent = Math.round(v); s.append(t);
+  }
+  const bw = Math.max(1.5, Math.min(18, step * 0.55));
+  const every = days.length > 45 ? 14 : days.length > 14 ? 7 : 1;
+  days.forEach((d, i) => {
+    if (d.visits) { const r = svgEl('rect', { x: x(i) - bw / 2, y: y(d.visits), width: bw, height: y(0) - y(d.visits), rx: 1.5, fill: '#6EA5FF' }); const tt = svgEl('title', {}); tt.textContent = shortDay(d.d) + ': ' + d.visits + ' visite, ' + (d.dl || 0) + ' click su Scarica'; r.append(tt); s.append(r); }
+    if (i % every === 0 || (i === days.length - 1 && i % every >= every / 2)) { const tx = svgEl('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', fill: '#6F7A8E', 'font-size': 10 }); tx.textContent = shortDay(d.d); s.append(tx); }
+  });
+  if (days.length > 1) s.append(svgEl('polyline', { points: days.map((d, i) => x(i) + ',' + y(d.dl || 0)).join(' '), fill: 'none', stroke: '#34D399', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+  return s;
+}
 function funnel(steps) {
   const top = Math.max(1, steps[0][1]);
   return el('div', { class: 'funnel' }, ...steps.map(([label, n], i) => el('div', { class: 'fn-r' },
@@ -1239,6 +1310,23 @@ function fillsModal(c, main) {
   document.body.append(bg);
   setTimeout(() => (box.querySelector('input') || tpl).focus(), 30);
 }
+// stesso controllo del database (admin_api.handle_key / name_key): niente doppioni con lo stesso nome o handle
+const RESERVED_SEG = ['watch','live','video','videos','p','reel','reels','shorts','s','share','profile','home','embed','clip','clips','popout','directory','search','explore','stories','tv'];
+function handleKey(u) {
+  const l = String(u || '').trim().toLowerCase().replace(/^(https?:\/\/)?(www\.|m\.)?/, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+  if (!l) return null;
+  let h;
+  if (!l.includes('/')) { if (/\.(com|tv|it|net|org|ee|gg|me|io|be|ly|co)$/.test(l)) return null; h = l; }
+  else { const s = l.split('/').slice(1); h = s[0]; if (['channel', 'c', 'user'].includes(h)) h = s[1]; else if (RESERVED_SEG.includes(h)) return null; }
+  h = String(h || '').replace(/[^a-z0-9]/g, '');
+  return h.length >= 3 ? h : null;
+}
+const nameKey = (n) => { const k = String(n || '').toLowerCase().replace(/[^a-z0-9]/g, ''); return k.length >= 3 ? k : null; };
+function crDup(name, channels, skip) {
+  const mine = new Set([nameKey(name), ...(channels || []).map((h) => handleKey(h.link))].filter(Boolean));
+  if (!mine.size) return null;
+  return ((S.cr && S.cr.creators) || []).find((c) => c.id !== skip && (mine.has(nameKey(c.name)) || (c.channels || []).some((h) => mine.has(handleKey(h.link))))) || null;
+}
 function creatorModal(c, main) {
   const isNew = !c; c = c || { name: '', email: '', channels: [], template_id: (S.cr.templates[0] || {}).id || null, status: 'nuovo' };
   const name = el('input', { class: 'search', placeholder: 'Nome del creator', value: c.name, maxlength: '120', 'aria-label': 'Nome' });
@@ -1267,6 +1355,15 @@ function creatorModal(c, main) {
     }), rows.length < 6 ? el('button', { class: 'linkish', type: 'button', onclick: () => { rows.push({ platform: '', link: '', followers: '' }); paintCh(); chBox.querySelectorAll('.chrow select')[rows.length - 1]?.focus(); } }, '＋ Aggiungi un\'altra piattaforma') : null);
   };
   paintCh();
+  const dupBox = el('div', { class: 'cr-dup', role: 'status', 'aria-live': 'polite' });
+  const checkDup = () => {
+    const d = crDup(name.value, rows, isNew ? null : c.id);
+    rc(dupBox, d ? el('span', null, el('b', null, 'Già in lista: '), d.name + ' (trovato da ' + crName(d.added_by) + '). Stesso nome o handle: non si può aggiungere di nuovo.') : null);
+    dupBox.hidden = !d;
+    return d;
+  };
+  name.addEventListener('input', checkDup); chBox.addEventListener('input', checkDup); chBox.addEventListener('change', checkDup);
+  checkDup();
   const tpl = tplSelect(c.template_id, null);
   let fills = { ...(c.fills || {}) };
   const fillBox = el('div', { class: 'cr-fills' });
@@ -1290,6 +1387,7 @@ function creatorModal(c, main) {
     }
     const patch = { name: name.value.trim(), email: email.value.trim(), channels, template_id: tpl.value ? +tpl.value : null, fills };
     if (!patch.name) { name.focus(); toast('Scrivi il nome'); return; }
+    const dd = crDup(patch.name, channels, isNew ? null : c.id); if (dd) { checkDup(); toast('Già in lista: ' + dd.name + ' (trovato da ' + crName(dd.added_by) + ')'); return; }
     if (noMail.checked) {
       patch.email = '';
       if (!channels.some((x) => x.platform === 'instagram' && x.link)) { toast('Senza email serve il link Instagram per scrivergli'); return; }
@@ -1299,7 +1397,7 @@ function creatorModal(c, main) {
       const r = await sql('creator_save', isNew ? patch : { id: c.id, ...patch });
       if (isNew) S.cr.creators.unshift(r); else Object.assign(S.cr.creators.find((x) => x.id === c.id) || {}, r);
       toast(isNew ? r.name + ' aggiunto' : 'Salvato');
-      if (again) { name.value = ''; email.value = ''; noMail.checked = false; syncMail(); fills = {}; paintFills(); rows = [{ platform: '', link: '', followers: '' }]; paintCh(); name.focus(); renderCreators(main); return; }
+      if (again) { name.value = ''; email.value = ''; noMail.checked = false; syncMail(); fills = {}; paintFills(); rows = [{ platform: '', link: '', followers: '' }]; paintCh(); checkDup(); name.focus(); renderCreators(main); return; }
       close(); renderCreators(main);
     } catch (e) { toast(explain(e)); }
   }
@@ -1312,7 +1410,7 @@ function creatorModal(c, main) {
   const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, el('div', { class: 'modal shop-modal cr-modal', role: 'dialog', 'aria-label': isNew ? 'Nuovo creator' : 'Creator' },
     el('div', { class: 'row' }, el('h2', { class: 'grow' }, isNew ? 'Nuovo creator' : c.name), el('button', { class: 'btn sm ghost', type: 'button', onclick: close, 'aria-label': 'Chiudi' }, '✕')),
     el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Nome'), name), el('div', { class: 'fld' }, el('span', null, 'Email'), email, el('label', { class: 'cr-nomail' }, noMail, el('span', null, 'Nessuna email (lo contattiamo su Instagram)')))),
-    el('div', { class: 'fld' }, el('span', null, 'Piattaforme e follower'), chBox),
+    el('div', { class: 'fld' }, el('span', null, 'Piattaforme e follower'), chBox), dupBox,
     el('div', { class: 'fgrid two' }, el('label', { class: 'fld' }, el('span', null, 'Bozza (email o messaggio)'), tpl), isNew ? el('span') : el('label', { class: 'fld' }, el('span', null, 'Stato'), st)),
     fillBox,
     el('p', { class: 'muted', style: 'margin:0;font-size:12px' }, isNew ? 'Trovato da: ' + crName(ME.email) + ' (preso dal tuo account). Invio: salva e passa al prossimo.'
@@ -1347,7 +1445,12 @@ function pasteModal(main) {
   const go2 = el('button', { class: 'btn primary', type: 'button', disabled: true }, 'Importa');
   const upd = () => {
     const P = parseCreators(ta.value), ok = P.filter((x) => !x.bad), bad = P.length - ok.length;
-    const dup = ok.filter((x) => x.email && S.cr.creators.some((c) => c.email === x.email)).length;
+    const seen = [];
+    const dup = ok.filter((x) => {
+      const d = (x.email && S.cr.creators.some((c) => c.email === x.email)) || crDup(x.name, x.channels, null)
+        || seen.some((y) => { const a = new Set([nameKey(y.name), ...y.channels.map((h) => handleKey(h.link))].filter(Boolean)); return [nameKey(x.name), ...x.channels.map((h) => handleKey(h.link))].some((k) => k && a.has(k)); });
+      seen.push(x); return d;
+    }).length;
     go2.disabled = !ok.length; go2.textContent = ok.length ? 'Importa ' + (ok.length - dup) + (ok.length - dup === 1 ? ' creator' : ' creator') : 'Importa';
     info.textContent = !P.length ? 'Incolla da un foglio, da una chat o da note: l\'email in ogni riga si trova da sola. Chi non ha email va bene con il link Instagram.'
       : ok.length + ' validi' + (dup ? ', ' + dup + ' già in lista' : '') + (bad ? ', ' + bad + (bad === 1 ? ' riga senza email né Instagram (saltata)' : ' righe senza email né Instagram (saltate)') : '') + '.';
