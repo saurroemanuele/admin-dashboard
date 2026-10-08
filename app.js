@@ -74,7 +74,7 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', site: 'launch', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
@@ -106,6 +106,7 @@ async function load(view, force) {
     if (view === 'shop' && (force || !S.shop)) S.shop = await sql('catalog', { op: 'list' });
     if (view === 'launch' && (force || !S.launch)) S.launch = await sql('launch');
     if (view === 'site' && (force || !S.site)) S.site = await sql('site', { days: S.sdays || 30 });
+    if (view === 'social' && (force || !S.soc)) S.soc = await sql('social', { days: S.socdays || 30 });
     if (view === 'status' && (force || !S.status)) S.status = await sql('status');
     if (view === 'messages' && (force || !S.messages)) S.messages = await sql('messages');
     if (view === 'money' && (force || !S.money)) S.money = await sql('money', { days: S.mdays || 30 });
@@ -133,6 +134,7 @@ function render() {
   if (S.view === 'shop') renderShop(main);
   if (S.view === 'launch') renderLaunch(main);
   if (S.view === 'site') renderSite(main);
+  if (S.view === 'social') renderSocial(main);
   if (S.view === 'tasks') renderTasks(main);
   if (S.view === 'creators') renderCreators(main);
   if (S.view === 'people') renderPeople(main);
@@ -150,6 +152,7 @@ const SUB = {
   Segnalazioni: 'Bug e idee mandati dall\'app. Le approvi, Claude le sistema in beta, tu le provi e le segni come fatte.',
   'Beta tester': 'Chi può provare le versioni nuove prima di tutti.',
   'Crediti e offerte': 'Prezzi dei piani, ricariche e offerte lampo che vedono gli utenti nell\'app.',
+  'Social del team': 'Chi ha postato, quanto e con che risultati. Tutti vedono l\'andamento di tutti.',
   Lancio: 'I numeri del lancio confrontati con gli obiettivi. Non contano le persone del team.',
   Sito: 'Chi visita noonframe.com, da dove arriva e quanti scaricano. Conteggi anonimi, senza cookie.',
   Task: 'Le cose da fare del team. Trascina una card per cambiarne lo stato.',
@@ -795,6 +798,230 @@ function renderLaunch(main) {
       + (L.dl.has_base ? '' : 'Prima del lancio non c\'era un conteggio, quindi includono anche i ' + num(L.dl.all_time) + ' download di prova fatti finora. ')
       + 'Non raccogliamo niente di chi visita il sito.')));
 }
+// ------------------------------------------------------------------ social del team: chi posta, quanto, con che risultati (tutti vedono tutti)
+const SOC_PLAT = { tiktok: ['TikTok', '#FF3B6B'], instagram: ['Instagram', '#E1306C'], youtube: ['YouTube', '#FF4B4B'], x: ['X', '#C9D1DE'],
+  linkedin: ['LinkedIn', '#3B8FFF'], facebook: ['Facebook', '#4F86F7'], threads: ['Threads', '#B6BFCE'], twitch: ['Twitch', '#A970FF'] };
+const SOC_KIND = [['video', 'Video'], ['foto', 'Foto'], ['carosello', 'Carosello'], ['storia', 'Storia'], ['live', 'Live'], ['testo', 'Testo']];
+const dKey = (d) => d.toISOString().slice(0, 10);
+const addDays = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return dKey(d); };
+const weekStart = (iso) => { const d = new Date(iso + 'T12:00:00Z'); const wd = (d.getUTCDay() + 6) % 7; return addDays(iso, -wd); };
+const platTag = (p) => el('span', { class: 'soc-plat', style: '--pc:' + (SOC_PLAT[p] || ['', '#8893A8'])[1] }, (SOC_PLAT[p] || [p])[0]);
+const short = (n) => { n = +n || 0; return n >= 1e6 ? (Math.round(n / 1e5) / 10 + ' M').replace('.', ',') : n >= 1e4 ? Math.round(n / 1e3) + 'k' : num(n); };
+
+function socStats(D) {
+  const today = D.today, wk = weekStart(today), since = addDays(today, -(D.days - 1));
+  const accOf = Object.fromEntries(D.accounts.map((a) => [a.id, a]));
+  return D.members.map((m) => {
+    const accs = D.accounts.filter((a) => a.owner === m.email);
+    const posts = D.posts.filter((p) => p.owner === m.email && accOf[p.account_id]);
+    const byDay = {}; posts.forEach((p) => { byDay[p.day] = (byDay[p.day] || 0) + 1; });
+    let streak = 0, d = byDay[today] ? today : addDays(today, -1);
+    while (byDay[d]) { streak++; d = addDays(d, -1); }
+    const inPer = posts.filter((p) => p.day >= since);
+    const followers = accs.reduce((s, a) => s + (a.followers || 0), 0);
+    const fStart = accs.reduce((s, a) => s + (a.followers_start ?? a.followers ?? 0), 0);
+    return { m, accs, posts, byDay, streak, today: byDay[today] || 0, week: posts.filter((p) => p.day >= wk).length,
+      goal: accs.reduce((s, a) => s + (a.goal_week || 0), 0), period: inPer.length, views: inPer.reduce((s, p) => s + (+p.views || 0), 0),
+      followers, growth: followers - fStart, last: posts[0] ? posts[0].day : null };
+  });
+}
+
+function renderSocial(main) {
+  S.socdays = S.socdays || 30;
+  const seg = el('div', { class: 'seg' }, ...[[7, '7 giorni'], [30, '30 giorni'], [90, '90 giorni']].map(([d, l]) =>
+    el('button', { type: 'button', 'aria-pressed': String(S.socdays === d), onclick: async () => { S.socdays = d; S.soc = null; renderSocial(main); try { S.soc = await sql('social', { days: d }); S.err = null; } catch (e) { S.err = explain(e); } renderSocial(main); } }, l)));
+  const D0 = S.soc;
+  const addBtn = el('button', { class: 'btn primary', type: 'button', disabled: !D0 || !D0.accounts.some((a) => a.owner === D0.me || D0.can_all), onclick: () => socPostModal(null, main) }, '+ Segna un post');
+  const body = el('div', { class: 'body' });
+  rc(main, head('Social del team', seg, addBtn), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  const D = S.soc; if (!D) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const st = socStats(D);
+  const mine = st.find((x) => x.m.email === D.me);
+  const accOf = Object.fromEntries(D.accounts.map((a) => [a.id, a]));
+  const nameOf = (e) => { const m = D.members.find((x) => x.email === e); return (m && (m.name || m.email.split('@')[0])) || e.split('@')[0]; };
+  const tot = st.reduce((s, x) => ({ today: s.today + x.today, week: s.week + x.week, goal: s.goal + x.goal, period: s.period + x.period, views: s.views + x.views }), { today: 0, week: 0, goal: 0, period: 0, views: 0 });
+  const kpi = (v, label, sub, cls) => el('div', { class: 'kpi' + (cls ? ' ' + cls : '') }, el('b', null, v), el('span', null, label), sub ? el('small', null, sub) : null);
+  const postedToday = st.filter((x) => x.today).length, withAcc = st.filter((x) => x.accs.length).length;
+
+  // ---- la mia striscia: un clic per segnare che oggi ho postato
+  const myBox = el('div', { class: 'card soc-mine' },
+    el('h2', null, 'I tuoi account', el('button', { class: 'btn', type: 'button', onclick: () => socAccountModal(null, main) }, '+ Account')),
+    mine && mine.accs.length ? el('div', { class: 'soc-accs' }, ...mine.accs.map((a) => {
+      const n = D.posts.filter((p) => p.account_id === a.id && p.day === D.today).length;
+      return el('div', { class: 'soc-acc' },
+        el('div', { class: 'soc-acc-h' }, platTag(a.platform), el('b', null, '@' + a.handle),
+          el('button', { class: 'iconbtn', type: 'button', title: 'Modifica account', 'aria-label': 'Modifica account', onclick: () => socAccountModal(a, main) }, '⋯')),
+        el('div', { class: 'soc-acc-n' }, el('span', null, a.followers != null ? short(a.followers) + ' follower' : 'Follower non segnati'),
+          el('button', { class: 'linkbtn', type: 'button', onclick: () => socFollowers(a, main) }, 'Aggiorna')),
+        el('button', { class: 'btn ' + (n ? 'good' : 'primary') + ' soc-today', type: 'button', onclick: () => socPostModal({ account_id: a.id, day: D.today, kind: 'video' }, main, true) },
+          n ? '✓ Postato oggi' + (n > 1 ? ' · ' + n : '') + '  +1' : 'Ho postato oggi'));
+    })) : el('p', { class: 'muted', style: 'margin:0' }, 'Aggiungi i tuoi profili (TikTok, Instagram, YouTube…) e l\'obiettivo di post a settimana. Poi ogni giorno basta un clic.'));
+
+  // ---- classifica del team
+  const ranked = st.slice().sort((a, b) => (b.week / Math.max(1, b.goal)) - (a.week / Math.max(1, a.goal)) || b.period - a.period);
+  const heat = (x) => {
+    const days = [...Array(28)].map((_, i) => addDays(D.today, i - 27));
+    return el('div', { class: 'soc-heat', 'aria-label': 'Ultime 4 settimane' }, ...days.map((d) => {
+      const n = x.byDay[d] || 0;
+      return el('i', { class: 'h' + Math.min(3, n) + (d === D.today ? ' now' : ''), title: shortDay(d) + ': ' + (n ? n + (n === 1 ? ' post' : ' post') : 'niente') });
+    }));
+  };
+  const rows = ranked.map((x) => {
+    const pct = x.goal ? Math.min(100, Math.round(x.week / x.goal * 100)) : 0;
+    const state = x.today ? el('span', { class: 'pill done' }, 'Ha postato oggi') : x.accs.length ? el('span', { class: 'pill' }, 'Non ancora oggi') : el('span', { class: 'pill dim' }, 'Nessun account');
+    return el('div', { class: 'soc-row' + (x.m.email === D.me ? ' me' : ''), onclick: () => { S.socwho = S.socwho === x.m.email ? null : x.m.email; renderSocial(main); }, 'aria-pressed': String(S.socwho === x.m.email) },
+      el('div', { class: 'soc-who' }, el('span', { class: 'av' }, nameOf(x.m.email).charAt(0).toUpperCase()),
+        el('div', null, el('b', null, nameOf(x.m.email) + (x.m.email === D.me ? ' (tu)' : '')),
+          el('small', null, x.accs.length ? x.accs.map((a) => (SOC_PLAT[a.platform] || [a.platform])[0]).join(' · ') : 'Nessun profilo'))),
+      state,
+      el('div', { class: 'soc-goal', title: 'Post di questa settimana sull\'obiettivo' },
+        el('span', null, el('b', null, x.week), ' / ' + (x.goal || '—') + ' questa settimana'),
+        el('span', { class: 'track' }, el('i', { style: 'width:' + pct + '%', class: pct >= 100 ? 'full' : '' }))),
+      el('div', { class: 'soc-num' }, el('b', null, x.streak), el('small', null, x.streak === 1 ? 'giorno di fila' : 'giorni di fila')),
+      el('div', { class: 'soc-num' }, el('b', null, short(x.views)), el('small', null, 'views')),
+      el('div', { class: 'soc-num' }, el('b', { class: x.growth > 0 ? 'grow' : '' }, (x.growth > 0 ? '+' : '') + short(x.growth)), el('small', null, 'follower')),
+      heat(x));
+  });
+
+  // ---- post recenti (filtrabili per persona)
+  const feedAll = D.posts.filter((p) => accOf[p.account_id] && (!S.socwho || p.owner === S.socwho));
+  const feedList = feedAll.slice(0, S.socmore ? 200 : 15);
+  const canEdit = (p) => p.owner === D.me || D.can_all;
+  const feed = feedList.length ? el('table', { class: 'tbl soc-tbl' },
+    el('thead', null, el('tr', null, el('th', null, 'Chi'), el('th', null, 'Dove'), el('th', null, 'Quando'), el('th', null, 'Cosa'), el('th', { class: 'r' }, 'Views'), el('th', { class: 'r' }, 'Like'), el('th', { class: 'r' }, 'Commenti'))),
+    el('tbody', null, ...feedList.map((p) => {
+      const a = accOf[p.account_id];
+      return el('tr', { class: canEdit(p) ? '' : 'ro', onclick: canEdit(p) ? () => socPostModal(p, main) : null, title: canEdit(p) ? 'Modifica' : null },
+        el('td', null, nameOf(p.owner)), el('td', null, platTag(a.platform), ' @' + a.handle),
+        el('td', null, p.day === D.today ? 'Oggi' : p.day === addDays(D.today, -1) ? 'Ieri' : shortDay(p.day)),
+        el('td', { class: 'soc-what' }, el('span', { class: 'muted' }, (SOC_KIND.find((k) => k[0] === p.kind) || [0, p.kind])[1]), p.title ? ' · ' + p.title : '',
+          p.url ? el('a', { href: p.url, target: '_blank', rel: 'noopener noreferrer', onclick: (e) => e.stopPropagation(), class: 'soc-link' }, 'Apri') : null),
+        el('td', { class: 'num' }, p.views != null ? short(p.views) : '—'), el('td', { class: 'num' }, p.likes != null ? short(p.likes) : '—'), el('td', { class: 'num' }, p.comments != null ? short(p.comments) : '—'));
+    }))) : el('p', { class: 'muted', style: 'margin:0' }, S.socwho ? 'Nessun post di questa persona nel periodo.' : 'Ancora nessun post segnato.');
+
+  // ---- per piattaforma
+  const since = addDays(D.today, -(D.days - 1));
+  const byPlat = {}; D.posts.filter((p) => p.day >= since && accOf[p.account_id]).forEach((p) => { const k = accOf[p.account_id].platform; byPlat[k] = byPlat[k] || { n: 0, v: 0 }; byPlat[k].n++; byPlat[k].v += +p.views || 0; });
+  const platRows = Object.entries(byPlat).sort((a, b) => b[1].n - a[1].n);
+
+  rc(body, el('div', { class: 'ov' },
+    el('div', { class: 'kpis' },
+      kpi(postedToday + ' / ' + (withAcc || st.length), 'Hanno postato oggi', postedToday === withAcc && withAcc ? 'Tutti, ottimo' : 'Persone con almeno un post oggi', postedToday === withAcc && withAcc ? '' : 'hot'),
+      kpi(num(tot.week) + (tot.goal ? ' / ' + num(tot.goal) : ''), 'Post questa settimana', tot.goal ? Math.round(tot.week / tot.goal * 100) + '% dell\'obiettivo del team' : 'Nessun obiettivo impostato'),
+      kpi(num(tot.period), 'Post', 'negli ultimi ' + D.days + ' giorni'),
+      kpi(short(tot.views), 'Views', 'dei post degli ultimi ' + D.days + ' giorni')),
+    myBox,
+    el('div', { class: 'card' }, el('h2', null, 'Il team', el('small', { class: 'muted' }, S.socwho ? 'Filtro: ' + nameOf(S.socwho) + ' · clicca di nuovo per togliere' : 'Clicca una persona per vedere solo i suoi post')),
+      el('div', { class: 'soc-rows' }, ...rows)),
+    el('div', { class: 'cards' },
+      el('div', { class: 'card', style: 'min-width:0;overflow-x:auto' }, el('h2', null, 'Post recenti'), feed,
+        feedAll.length > feedList.length ? el('button', { class: 'btn', type: 'button', style: 'margin-top:10px', onclick: () => { S.socmore = true; renderSocial(main); } }, 'Mostra tutti (' + feedAll.length + ')') : null),
+      el('div', { class: 'card' }, el('h2', null, 'Per piattaforma'), platRows.length ? barList(platRows.map(([k, v]) => [(SOC_PLAT[k] || [k])[0] + ' · ' + short(v.v) + ' views', v.n])) : el('p', { class: 'muted', style: 'margin:0' }, 'Nessun dato'))),
+    el('p', { class: 'muted fine' }, 'Tutto il team vede l\'andamento di tutti; ognuno modifica solo i suoi post e i suoi account. Views, like e follower li segni tu: aggiornali quando vuoi dal post.')));
+}
+
+function socModalShell(title, kids, foot) {
+  const close = () => { bg.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  const bg = el('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } },
+    el('div', { class: 'modal shop-modal soc-modal', role: 'dialog', 'aria-label': title }, el('h2', null, title), ...kids, el('div', { class: 'row', style: 'justify-content:flex-end;gap:8px;margin-top:6px' }, ...foot(close))));
+  document.body.append(bg);
+  return close;
+}
+const socField = (label, input, hint) => el('label', { class: 'fld' }, el('span', null, label), input, hint ? el('small', { class: 'muted' }, hint) : null);
+const intOrNull = (v) => { const s = String(v || '').replace(/[^0-9]/g, ''); return s === '' ? null : s; };
+
+function socPostModal(p, main, quick) {
+  const D = S.soc, isNew = !p || !p.id;
+  p = { account_id: '', day: D.today, kind: 'video', url: '', title: '', views: null, likes: null, comments: null, ...(p || {}) };
+  const accs = D.accounts.filter((a) => a.owner === D.me || (D.can_all && (isNew ? a.owner === D.me : a.owner === p.owner)));
+  if (!accs.length) { toast('Aggiungi prima un account'); return; }
+  const acc = el('select', { class: 'search' }, ...accs.map((a) => el('option', { value: a.id, selected: a.id === p.account_id }, (SOC_PLAT[a.platform] || [a.platform])[0] + ' · @' + a.handle)));
+  const day = el('input', { class: 'search', type: 'date', value: p.day, max: D.today });
+  const kind = el('select', { class: 'search' }, ...SOC_KIND.map(([v, l]) => el('option', { value: v, selected: p.kind === v }, l)));
+  const url = el('input', { class: 'search', type: 'url', placeholder: 'https://…', value: p.url || '', maxlength: '300' });
+  const title = el('input', { class: 'search', placeholder: 'Di cosa parla (facoltativo)', value: p.title || '', maxlength: '140' });
+  const metric = (v, ph) => el('input', { class: 'search', inputmode: 'numeric', placeholder: ph, value: v == null ? '' : String(v) });
+  const views = metric(p.views, '0'), likes = metric(p.likes, '0'), comments = metric(p.comments, '0');
+  let armed = false;
+  socModalShell(isNew ? (quick ? 'Ho postato oggi' : 'Segna un post') : 'Post', [
+    el('div', { class: 'soc-grid' }, socField('Account', acc), socField('Giorno', day), socField('Tipo', kind)),
+    socField('Link al post', url, 'Facoltativo: così il team lo apre al volo'),
+    socField('Titolo o argomento', title),
+    el('div', { class: 'soc-grid' }, socField('Views', views), socField('Like', likes), socField('Commenti', comments)),
+    isNew ? el('p', { class: 'muted', style: 'margin:0;font-size:12.5px' }, 'I numeri puoi lasciarli vuoti e aggiungerli tra qualche giorno, quando il post ha girato.') : null,
+  ], (close) => [
+    !isNew ? el('button', { class: 'btn bad', type: 'button', style: 'margin-right:auto', onclick: async (e) => {
+      if (!armed) { armed = true; e.currentTarget.textContent = 'Conferma: elimina'; return; }
+      e.currentTarget.disabled = true;
+      try { await sql('social_save', { op: 'post_remove', id: p.id }); S.soc.posts = S.soc.posts.filter((x) => x.id !== p.id); close(); toast('Post eliminato'); renderSocial(main); }
+      catch (er) { toast(explain(er)); e.currentTarget.disabled = false; }
+    } }, 'Elimina') : null,
+    el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'),
+    el('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        const r = await sql('social_save', { op: 'post', id: isNew ? null : p.id, account_id: acc.value, day: day.value, kind: kind.value, url: url.value.trim(), title: title.value.trim(),
+          views: intOrNull(views.value), likes: intOrNull(likes.value), comments: intOrNull(comments.value) });
+        S.soc.posts = [r, ...S.soc.posts.filter((x) => x.id !== r.id)].sort((a, b) => (b.day > a.day ? 1 : b.day < a.day ? -1 : (b.at > a.at ? 1 : -1)));
+        close(); toast(isNew ? 'Segnato, bravo!' : 'Post aggiornato'); renderSocial(main);
+      } catch (er) { toast(explain(er)); e.currentTarget.disabled = false; }
+    } }, isNew ? 'Segna' : 'Salva'),
+  ]);
+  (quick ? url : acc).focus();
+}
+
+function socAccountModal(a, main) {
+  const D = S.soc, isNew = !a;
+  a = a || { platform: 'tiktok', handle: '', url: '', goal_week: 3, owner: D.me };
+  const plat = el('select', { class: 'search' }, ...Object.entries(SOC_PLAT).map(([k, [l]]) => el('option', { value: k, selected: a.platform === k }, l)));
+  const handle = el('input', { class: 'search', placeholder: 'nomeprofilo', value: a.handle, maxlength: '60' });
+  const url = el('input', { class: 'search', type: 'url', placeholder: 'https://www.tiktok.com/@nomeprofilo', value: a.url || '', maxlength: '300' });
+  const goal = el('input', { class: 'search', type: 'number', min: '0', max: '50', value: String(a.goal_week ?? 3) });
+  const owner = D.can_all && isNew ? el('select', { class: 'search' }, ...D.members.map((m) => el('option', { value: m.email, selected: m.email === D.me }, m.name || m.email))) : null;
+  let armed = false;
+  socModalShell(isNew ? 'Nuovo account' : 'Account', [
+    owner ? socField('Di chi è', owner) : null,
+    el('div', { class: 'soc-grid' }, socField('Piattaforma', plat), socField('Nome profilo', handle, 'Senza la @')),
+    socField('Link al profilo', url, 'Facoltativo'),
+    socField('Post a settimana (obiettivo)', goal, 'Lo vede tutto il team, insieme a quanti ne hai fatti'),
+  ], (close) => [
+    !isNew ? el('button', { class: 'btn bad', type: 'button', style: 'margin-right:auto', onclick: async (e) => {
+      if (!armed) { armed = true; e.currentTarget.textContent = 'Conferma: togli'; return; }
+      e.currentTarget.disabled = true;
+      try { await sql('social_save', { op: 'account_remove', id: a.id }); S.soc.accounts = S.soc.accounts.filter((x) => x.id !== a.id); close(); toast('Account tolto'); renderSocial(main); }
+      catch (er) { toast(explain(er)); e.currentTarget.disabled = false; }
+    } }, 'Togli account') : null,
+    el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'),
+    el('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        const r = await sql('social_save', { op: 'account', id: isNew ? null : a.id, platform: plat.value, handle: handle.value.trim(), url: url.value.trim(), goal_week: goal.value, owner: owner ? owner.value : null });
+        const prev = S.soc.accounts.find((x) => x.id === r.id);
+        const row = { ...(prev || {}), id: r.id, owner: r.owner, platform: r.platform, handle: r.handle, url: r.url, goal_week: r.goal_week, followers: r.followers, followers_at: r.followers_at };
+        S.soc.accounts = prev ? S.soc.accounts.map((x) => (x.id === r.id ? row : x)) : [...S.soc.accounts, row];
+        close(); toast(isNew ? 'Account aggiunto' : 'Account aggiornato'); renderSocial(main);
+      } catch (er) { toast(explain(er)); e.currentTarget.disabled = false; }
+    } }, isNew ? 'Aggiungi' : 'Salva'),
+  ]);
+  handle.focus();
+}
+
+function socFollowers(a, main) {
+  const n = el('input', { class: 'search', inputmode: 'numeric', placeholder: 'es. 12500', value: a.followers == null ? '' : String(a.followers) });
+  socModalShell('Follower di @' + a.handle, [socField('Quanti follower ha adesso', n, 'Segnali ogni tanto: il team vede di quanto cresce ogni profilo')], (close) => [
+    el('button', { class: 'btn', type: 'button', onclick: close }, 'Annulla'),
+    el('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try { const r = await sql('social_save', { op: 'followers', account_id: a.id, n: n.value }); Object.assign(S.soc.accounts.find((x) => x.id === a.id), { followers: r.followers, followers_at: r.followers_at }); close(); toast('Follower aggiornati'); renderSocial(main); }
+      catch (er) { toast(explain(er)); e.currentTarget.disabled = false; }
+    } }, 'Salva'),
+  ]);
+  n.focus(); n.select();
+}
+
 // ------------------------------------------------------------------ sito: visite anonime di noonframe.com
 const SRC_NAME = { diretto: 'Diretto o link senza provenienza', 'tiktok.com': 'TikTok', 'instagram.com': 'Instagram', 'l.instagram.com': 'Instagram', 'youtube.com': 'YouTube', 'm.youtube.com': 'YouTube',
   'google.com': 'Google', 'google.it': 'Google', 'bing.com': 'Bing', 'twitch.tv': 'Twitch', 'kick.com': 'Kick', 'x.com': 'X', 't.co': 'X', 'facebook.com': 'Facebook', 'l.facebook.com': 'Facebook',
