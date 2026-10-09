@@ -164,7 +164,7 @@ const SUB = {
   'Team e permessi': 'Chi può entrare in questo pannello e cosa può fare.',
   Persone: 'Solo per i founder: quanto lavora ogni persona del team, creator trovati, email, risposte e task.',
   Creator: 'I creator trovati dal team. Con l\'email ricevono la bozza; senza email si scrivono su Instagram.',
-  'Email e messaggi': 'Le bozze per i creator: le email partono dalla casella ufficiale di NoonFrame, i messaggi DM si copiano e incollano. {nome} si mette da solo, gli altri campi li completa chi assegna la bozza.',
+  'Email e messaggi': 'Email agli utenti dell\'app e ai creator. Le bozze valgono per entrambi: le email partono da NoonFrame, i messaggi DM si copiano e incollano. {nome} si mette da solo, gli altri campi li completa chi assegna la bozza.',
   Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
   Messaggi: 'Avvisi e novità che arrivano nella campanella dell\'app.',
   'Clip dal web': 'Le clip create dal sito: quanti lavori, quanto costano davvero (AI e server) e quanto rendono. Da qui metti il tetto di spesa o le fermi.',
@@ -1791,7 +1791,7 @@ function renderMail(main) {
   const smtpBox = sm.ok ? el('div', { class: 'mail-state ok' }, el('i'), el('span', null, 'Le email partono da ', el('b', null, sm.from || 'la casella ufficiale'), '.'))
     : sm.error === 'auth' ? el('div', { class: 'mail-state bad' }, el('i'), el('span', null, el('b', null, 'Hostinger ha rifiutato la password. '), 'Controlla HOSTINGER_SMTP_USER e HOSTINGER_SMTP_PASS nei segreti di Supabase (Edge Functions → Secrets). Le email restano in coda e ripartono da sole.'))
     : sm.error === 'send' ? el('div', { class: 'mail-state warn' }, el('i'), el('span', null, el('b', null, 'Ultimo invio non riuscito: '), String(sm.detail || '').slice(0, 160)))
-    : el('div', { class: 'mail-state warn' }, el('i'), el('span', null, el('b', null, 'Casella Hostinger da collegare. '), 'In Supabase → Edge Functions → Secrets aggiungi HOSTINGER_SMTP_USER (l\'email ufficiale di NoonFrame) e HOSTINGER_SMTP_PASS (la sua password). Finché manca, le email restano in coda.'));
+    : el('div', { class: 'mail-state warn' }, el('i'), el('span', null, el('b', null, 'Email ai creator: casella Hostinger da collegare. '), 'Le email agli utenti partono lo stesso. Per i creator: in Supabase → Edge Functions → Secrets aggiungi HOSTINGER_SMTP_USER (l\'email ufficiale di NoonFrame) e HOSTINGER_SMTP_PASS (la sua password). Finché manca, le email restano in coda.'));
   // bozze
   const tpls = el('div', { class: 'tpl-grid' }, ...(C.templates.length ? C.templates.map((t) => el('button', { class: 'tpl-card', type: 'button', onclick: () => templateModal(t, main) },
     el('b', null, el('span', { class: 'cr-tplk ' + tplKind(t) }, tplKind(t) === 'dm' ? 'DM' : 'Email'), ' ', t.name), tplKind(t) === 'email' ? el('span', { class: 'tpl-sub' }, fillName(t.subject, 'Mario')) : el('span', { class: 'tpl-sub' }, 'Da copiare e incollare in DM'), el('span', { class: 'tpl-body' }, fillName(t.body, 'Mario').slice(0, 160)),
@@ -1802,7 +1802,7 @@ function renderMail(main) {
   S.mailsel = S.mailsel && S.mailsel.size ? new Set([...S.mailsel].filter((id) => ready.some((c) => c.id === id))) : new Set(ready.map((c) => c.id));
   const readyBox = el('section', { class: 'mail-sec' });
   const paintReady = () => {
-    if (!ready.length) { rc(readyBox, el('h2', null, 'Pronte da mandare'), el('div', { class: 'empty' }, C.creators.some((c) => c.status === 'nuovo' && !c.template_id) ? 'Ci sono creator senza bozza: assegnala nella tab Creator.' : 'Niente da mandare. Aggiungi creator e assegna una bozza.')); return; }
+    if (!ready.length) { rc(readyBox, el('h2', null, 'Creator: pronte da mandare'), el('div', { class: 'empty' }, C.creators.some((c) => c.status === 'nuovo' && !c.template_id) ? 'Ci sono creator senza bozza: assegnala nella tab Creator.' : 'Niente da mandare. Aggiungi creator e assegna una bozza.')); return; }
     const n = S.mailsel.size;
     const allCb = el('input', { type: 'checkbox', checked: n === ready.length, 'aria-label': 'Seleziona tutti' });
     allCb.addEventListener('change', () => { S.mailsel = allCb.checked ? new Set(ready.map((c) => c.id)) : new Set(); paintReady(); });
@@ -1815,7 +1815,7 @@ function renderMail(main) {
     } }, 'Manda ' + n + (n === 1 ? ' email' : ' email')) : el('span', { class: 'muted' }, 'Puoi preparare e assegnare le bozze. Per mandarle serve il permesso: lo decide Emanuele.');
     const byTpl = {};
     ready.forEach((c) => { (byTpl[c.template_id] = byTpl[c.template_id] || []).push(c); });
-    rc(readyBox, el('div', { class: 'row' }, el('h2', { class: 'grow' }, 'Pronte da mandare ', el('i', { class: 'segn' }, ready.length)), allCb, el('span', { class: 'muted' }, 'tutte'), sendBtn),
+    rc(readyBox, el('div', { class: 'row' }, el('h2', { class: 'grow' }, 'Creator: pronte da mandare ', el('i', { class: 'segn' }, ready.length)), allCb, el('span', { class: 'muted' }, 'tutte'), sendBtn),
       ...Object.entries(byTpl).map(([tid, list]) => {
         const t = crTpl(+tid);
         return el('div', { class: 'mail-grp' }, el('div', { class: 'mail-grp-h' }, el('b', null, t.name), el('span', { class: 'muted' }, list.length + (list.length === 1 ? ' creator' : ' creator'))),
@@ -1853,8 +1853,66 @@ function renderMail(main) {
       el('td', { class: 'hide-m' }, m.subject),
       el('td', null, el('span', { class: 'pill ' + (MS[m.status] || ['', ''])[1], title: m.error || '' }, (MS[m.status] || [m.status])[0])),
       el('td', { class: 'hide-m muted' }, when(m.sent_at || m.created_at) + ' · ' + crName(m.created_by))))))) : el('p', { class: 'muted' }, 'Ancora nessuna email.'));
-  rc(body, smtpBox, el('section', { class: 'mail-sec' }, el('h2', null, 'Bozze: email e messaggi DM'), tpls), readyBox, qBox, log);
+  rc(body, smtpBox, usersMailBox(main, C, canSend, Q), el('section', { class: 'mail-sec' }, el('h2', null, 'Bozze: email e messaggi DM'), tpls), readyBox, qBox, log);
   if (Q.pending) mailTimer = setTimeout(() => { if (S.view === 'mail' && !document.querySelector('.modal-bg')) crReload(main); }, 15000);
+}
+
+// ---- email a tutti gli utenti dell'app (con link per disiscriversi in fondo a ogni email)
+const UA_SEGS = [['oggi', 'Iscritti oggi'], ['7', 'Ultimi 7 giorni'], ['30', 'Ultimi 30 giorni'], ['tutti', 'Tutti gli utenti'], ['clienti', 'Hanno comprato'], ['gratis', 'Non hanno mai comprato']];
+function usersMailBox(main, C, canSend, Q) {
+  const box = el('section', { class: 'mail-sec ua' });
+  const emailTpls = C.templates.filter((t) => tplKind(t) === 'email');
+  S.ua = S.ua || { seg: 'oggi', tid: null, data: null, open: false };
+  const U = S.ua;
+  if (U.tid && !emailTpls.some((t) => t.id === U.tid)) U.tid = null;
+  if (!U.tid && emailTpls.length) U.tid = (emailTpls.find((t) => /sconto|nuovi utenti/i.test(t.name)) || emailTpls[0]).id;
+  const load = async () => {
+    try { U.data = await sql('users_audience', { seg: U.seg, template_id: U.tid }); } catch (e) { U.data = { err: explain(e) }; }
+    paint();
+  };
+  const paint = () => {
+    const D = U.data;
+    const counts = (D && D.counts) || {};
+    const list = (D && D.list) || [];
+    const todo = list.filter((x) => !x.done).length, done = list.length - todo;
+    const t = emailTpls.find((x) => x.id === U.tid);
+    const segs = el('div', { class: 'ua-segs', role: 'radiogroup', 'aria-label': 'A chi mandare' }, ...UA_SEGS.map(([k, l]) => el('button', { type: 'button', role: 'radio', class: 'ua-seg', 'aria-checked': String(U.seg === k),
+      onclick: () => { U.seg = k; U.open = false; paint(); load(); } }, el('b', null, counts[k] == null ? '…' : counts[k]), el('span', null, l))));
+    const sel = el('select', { class: 'search', 'aria-label': 'Bozza da mandare' }, ...(emailTpls.length ? emailTpls.map((x) => el('option', { value: x.id, selected: x.id === U.tid ? true : null }, x.name)) : [el('option', { value: '' }, 'Nessuna bozza email')]));
+    sel.addEventListener('change', () => { U.tid = +sel.value || null; paint(); load(); });
+    const qq = (D && D.queue) || {};
+    const send = canSend ? el('button', { class: 'btn primary', type: 'button', disabled: !t || !todo ? true : null, onclick: async (e) => {
+      const b = e.currentTarget;
+      if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Conferma: manda a ' + todo + (todo === 1 ? ' persona' : ' persone'); return; }
+      b.disabled = true;
+      try { const r = await sql('users_send', { seg: U.seg, template_id: U.tid }); toast(r.queued + ' email in partenza' + (r.skipped ? ' · ' + r.skipped + ' l\'avevano già ricevuta' : '')); await load(); }
+      catch (x) { toast(explain(x)); b.disabled = false; }
+    } }, !t ? 'Scegli una bozza' : todo ? 'Manda a ' + todo + (todo === 1 ? ' persona' : ' persone') : 'Già mandata a tutti') : el('span', { class: 'muted' }, 'Per mandare serve il permesso: lo decide Emanuele.');
+    const test = canSend && t ? el('button', { class: 'btn', type: 'button', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try { const r = await sql('users_test', { template_id: t.id }); toast('Prova in arrivo a ' + r.to); } catch (x) { toast(explain(x)); }
+      e.currentTarget.disabled = false;
+    } }, 'Manda una prova a me') : null;
+    const pv = t ? el('details', { class: 'mail-pv ua-pv' }, el('summary', null, el('span', { class: 'mail-subj' }, 'Anteprima: ', el('b', null, fillName(t.subject, 'Mario')))),
+      el('div', { class: 'mail-pv-b' }, el('pre', null, fillName(t.body, 'Mario') + '\n\n--\nRicevi questa email perché hai un account NoonFrame. Per non ricevere più email come questa: [link per disiscriversi]'),
+        el('button', { class: 'btn sm', type: 'button', onclick: () => templateModal(t, main) }, 'Modifica la bozza'))) : null;
+    const people = el('details', { class: 'box ua-people', open: U.open ? true : null }, el('summary', null, D && D.err ? D.err : !D ? 'Carico…' : list.length ? list.length + (list.length === 1 ? ' persona' : ' persone') + (done ? ' · ' + done + ' l\'hanno già ricevuta' : '') : 'Nessuno in questo gruppo'),
+      list.length ? el('div', { class: 'tblwrap' }, el('table', { class: 'tbl' }, el('tbody', null, ...list.map((x) => el('tr', null,
+        el('td', null, el('b', null, x.name || '—'), el('div', { class: 'muted', style: 'font-size:12px' }, x.email)),
+        el('td', { class: 'muted hide-m' }, 'Iscritto ' + when(x.at)),
+        el('td', null, x.done ? el('span', { class: 'pill done' }, 'Già ricevuta') : el('span', { class: 'pill wait' }, 'Da mandare'))))))) : null);
+    people.addEventListener('toggle', () => { U.open = people.open; });
+    rc(box, el('div', { class: 'row' }, el('h2', { class: 'grow' }, 'Email agli utenti'), D && D.optout ? el('span', { class: 'muted' }, D.optout + ' disiscritti, esclusi') : null),
+      el('p', { class: 'muted ua-lead' }, 'Manda una bozza a un gruppo di utenti dell\'app. Ognuno la riceve una volta sola, con il suo nome al posto di {nome} e il link per disiscriversi in fondo. Chi si è disiscritto o è bloccato non la riceve.'),
+      el('div', { class: 'ua-step' }, el('span', { class: 'ua-n' }, 'A chi'), segs),
+      el('div', { class: 'ua-step' }, el('span', { class: 'ua-n' }, 'Cosa'), el('div', { class: 'ua-what' }, sel, el('button', { class: 'btn sm ghost', type: 'button', onclick: () => templateModal(null, main) }, '＋ Nuova bozza'))),
+      pv, people, el('div', { class: 'row ua-go' }, el('span', { class: 'muted grow' }, t ? (qq.pending ? 'Questa bozza: ' + qq.pending + ' in partenza, ' : 'Questa bozza: ') + (qq.sent || 0) + ' consegnate' + (qq.failed ? ', ' + qq.failed + ' non riuscite' : '') + '. Partono da team@noonframe.com, un paio al secondo.' : ''), test, send));
+    clearTimeout(U.timer);
+    if (qq.pending) U.timer = setTimeout(() => { if (S.view === 'mail' && document.body.contains(box)) load(); }, 8000);
+  };
+  paint();
+  load();
+  return box;
 }
 
 function templateModal(t, main) {
