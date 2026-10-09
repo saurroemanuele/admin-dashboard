@@ -74,7 +74,7 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team', brand: 'brand_owner' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
@@ -107,6 +107,7 @@ async function load(view, force) {
     if (view === 'launch' && (force || !S.launch)) S.launch = await sql('launch');
     if (view === 'site' && (force || !S.site)) S.site = await sql('site', { days: S.sdays || 30 });
     if (view === 'social' && (force || !S.soc)) S.soc = await sql('social', { days: S.socdays || 30 });
+    if (view === 'brand' && (force || !S.brand)) S.brand = await sql('brand_funnel', { days: S.bdays || 30 });
     if (view === 'status' && (force || !S.status)) S.status = await sql('status');
     if (view === 'messages' && (force || !S.messages)) S.messages = await sql('messages');
     if (view === 'money' && (force || !S.money)) S.money = await sql('money', { days: S.mdays || 30 });
@@ -135,6 +136,7 @@ function render() {
   if (S.view === 'launch') renderLaunch(main);
   if (S.view === 'site') renderSite(main);
   if (S.view === 'social') renderSocial(main);
+  if (S.view === 'brand') renderBrand(main);
   if (S.view === 'tasks') renderTasks(main);
   if (S.view === 'creators') renderCreators(main);
   if (S.view === 'people') renderPeople(main);
@@ -154,6 +156,7 @@ const SUB = {
   'Crediti e offerte': 'Prezzi dei piani, ricariche e offerte lampo che vedono gli utenti nell\'app.',
   'Social del team': 'Chi ha postato, quanto e con che risultati. Tutti vedono l\'andamento di tutti.',
   Lancio: 'I numeri del lancio confrontati con gli obiettivi. Non contano le persone del team.',
+  'Personal brand': 'Solo tuo: chi lascia l\'email su saurroemanuele.com, cosa risponde al questionario e dove si ferma. Nessun altro del team vede questa pagina.',
   Sito: 'Chi visita noonframe.com, da dove arriva e quanti scaricano. Conteggi anonimi, senza cookie.',
   Task: 'Le cose da fare del team. Trascina una card per cambiarne lo stato.',
   'Team e permessi': 'Chi può entrare in questo pannello e cosa può fare.',
@@ -1089,6 +1092,77 @@ function linkRequests(R) {
     el('p', { class: 'muted fine', style: 'margin:10px 0 0' }, news
       ? news + ' su ' + list.length + ' hanno chiesto anche le novità: solo a loro puoi scrivere per promozioni. Agli altri solo per il link o per aiutarli a installare.'
       : 'Nessuno ha chiesto le novità: puoi scrivere solo per il link o per aiutarli a installare, non per promozioni.'));
+}
+// ------------------------------------------------------------------ personale: funnel e lead di saurroemanuele.com (solo proprietario)
+const BRAND_Q = [['chi_sei', 'Chi è'], ['follower', 'Follower'], ['guadagni', 'Guadagna oggi'], ['budget', 'Budget'], ['problema', 'Problema'], ['obiettivo', 'Obiettivo']];
+const BRAND_SRC = { commenti: 'Commenti IG', dm: 'DM Instagram', bio: 'Link in bio', ig: 'Instagram', diretto: 'Diretto', test: 'Test' };
+async function brandReload(main) { S.brand = null; renderBrand(main); try { S.brand = await sql('brand_funnel', { days: S.bdays }); S.err = null; } catch (e) { S.err = explain(e); } renderBrand(main); }
+function brandCsv(rows) {
+  const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const lines = [['Data', 'Email', 'Nome', 'Fonte', ...BRAND_Q.map((x) => x[1])].map(q).join(';')];
+  rows.forEach((l) => lines.push([full(l.at), l.email, l.name, l.source, ...BRAND_Q.map(([k]) => (l.answers || {})[k])].map(q).join(';')));
+  const a = el('a', { href: URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })), download: 'lead-saurroemanuele-' + new Date().toISOString().slice(0, 10) + '.csv' });
+  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function renderBrand(main) {
+  S.bdays = S.bdays || 30; S.bq = S.bq || '';
+  const seg = el('div', { class: 'seg' }, ...[[1, 'Oggi'], [7, '7 giorni'], [30, '30 giorni'], [365, 'Tutto']].map(([d, l]) =>
+    el('button', { type: 'button', 'aria-pressed': String(S.bdays === d), onclick: () => { S.bdays = d; brandReload(main); } }, l)));
+  const body = el('div', { class: 'body' });
+  rc(main, head('Personal brand', seg), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  const B = S.brand; if (!B) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const st = B.steps || {}, leads = B.leads || [];
+  const kpi = (v, label, sub, cls) => el('div', { class: 'kpi' + (cls ? ' ' + cls : '') }, el('b', null, v), el('span', null, label), sub ? el('small', null, sub) : null);
+  const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  const per = S.bdays === 1 ? 'oggi' : S.bdays === 365 ? 'nell\'ultimo anno' : 'negli ultimi ' + S.bdays + ' giorni';
+  const views = st.view || 0, started = st.q1 || 0, sub = st.submit || 0;
+  const steps = [['Aprono la pagina', views], ['Rispondono alla 1ª domanda', st.q1 || 0], ['2ª domanda', st.q2 || 0], ['3ª domanda', st.q3 || 0], ['4ª domanda', st.q4 || 0],
+    ['5ª domanda', st.q5 || 0], ['Lasciano l\'email', sub], ['Scaricano la guida', st.download || 0], ['Vanno alla newsletter', st.newsletter || 0]];
+  const srcTbl = (B.sources || []).length ? el('table', { class: 'tbl site-tbl' },
+    el('thead', null, el('tr', null, el('th', null, 'Da dove'), el('th', { class: 'r' }, 'Visite'), el('th', { class: 'r' }, 'Iniziano'), el('th', { class: 'r' }, 'Lead'), el('th', { class: 'r' }, '%'))),
+    el('tbody', null, ...B.sources.map((x) => el('tr', null, el('td', null, BRAND_SRC[x.k] || x.k), el('td', { class: 'r' }, num(x.visits)), el('td', { class: 'r' }, num(x.started)),
+      el('td', { class: 'r' }, num(x.leads)), el('td', { class: 'r muted' }, pct(x.leads, x.visits))))))
+    : el('p', { class: 'muted', style: 'margin:0' }, 'Ancora nessuna visita registrata.');
+  const ans = B.answers || {};
+  const ansCards = BRAND_Q.filter(([k]) => ans[k]).map(([k, l]) => el('div', { class: 'card' }, el('h2', null, l), barList(Object.entries(ans[k]).sort((a, b) => b[1] - a[1]))));
+  // tabella lead con ricerca
+  const q = el('input', { class: 'search', type: 'search', placeholder: 'Cerca email, nome o risposta', value: S.bq, 'aria-label': 'Cerca lead' });
+  const wrap = el('div', { style: 'overflow-x:auto' });
+  const filtered = () => { const t = S.bq.trim().toLowerCase(); return t ? leads.filter((l) => JSON.stringify([l.email, l.name, l.source, l.answers]).toLowerCase().includes(t)) : leads; };
+  const paint = () => {
+    const rows = filtered();
+    if (!rows.length) { rc(wrap, el('div', { class: 'empty' }, leads.length ? 'Nessun lead con questa ricerca.' : 'Ancora nessun lead ' + per + '.')); return; }
+    rc(wrap, el('table', { class: 'tbl' },
+      el('thead', null, el('tr', null, el('th', null, 'Quando'), el('th', null, 'Persona'), el('th', null, 'Fonte'), ...BRAND_Q.map(([, l]) => el('th', null, l)), el('th', null, ''))),
+      el('tbody', null, ...rows.map((l) => el('tr', { style: 'cursor:default' },
+        el('td', { title: full(l.at) }, when(l.at)),
+        el('td', null, el('div', { class: 'who' }, el('span', null, el('b', null, l.name || l.email), l.name ? el('small', null, l.email) : null))),
+        el('td', null, BRAND_SRC[l.source] || l.source || '—'),
+        ...BRAND_Q.map(([k]) => el('td', null, (l.answers || {})[k] || el('span', { class: 'muted' }, '—'))),
+        el('td', null, el('button', { class: 'btn sm ghost', type: 'button', title: 'Cancella questo lead', onclick: async () => {
+          if (!window.confirm('Cancellare ' + l.email + '? Non si può annullare.')) return;
+          try { await sql('brand_lead_delete', { email: l.email }); toast('Lead cancellato'); brandReload(main); } catch (e) { toast(explain(e)); }
+        } }, 'Cancella')))))));
+  };
+  q.addEventListener('input', () => { S.bq = q.value; paint(); });
+  paint();
+  rc(body, el('div', { class: 'ov' },
+    el('div', { class: 'kpis' },
+      kpi(num(B.leads_total), 'Lead totali', 'Da sempre'),
+      kpi(num(leads.length), 'Nuovi lead', per),
+      kpi(num(views), 'Visite alla pagina', per),
+      kpi(pct(sub, views), 'Conversione', views ? num(started) + ' iniziano il questionario, ' + num(Math.max(0, started - sub)) + ' si fermano prima dell\'email' : 'Arriva con le prime visite', started > sub ? 'hot' : null)),
+    el('div', { class: 'card' }, el('h2', null, 'Lead', el('span', { class: 'leg' }, q,
+      el('button', { class: 'btn sm', type: 'button', onclick: () => brandCsv(filtered()), disabled: leads.length ? null : true }, 'Scarica CSV'))), wrap),
+    el('div', { class: 'cards' },
+      el('div', { class: 'card' }, el('h2', null, 'Fin dove arrivano'), funnel(steps)),
+      el('div', { class: 'card' }, el('h2', null, 'Da dove arrivano'), srcTbl)),
+    S.bdays > 1 && (B.series || []).length ? el('div', { class: 'card chart' }, el('h2', null, 'Giorno per giorno',
+      el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:#6EA5FF' }), 'Visite'), el('span', null, el('i', { style: 'background:#34D399' }), 'Lead'))),
+      siteChart((B.series || []).map((d) => ({ d: d.d, visits: d.visits, dl: d.leads })))) : null,
+    ansCards.length ? el('div', { class: 'cards', style: 'grid-template-columns:repeat(auto-fit,minmax(260px,1fr))' }, ansCards) : null,
+    el('p', { class: 'muted fine' }, 'Il funnel conta le persone (una sessione del browser), senza cookie e senza IP. I lead arrivati prima dell\'8 ottobre non hanno il percorso passo per passo. Le fonti vengono dal parametro ?src= dei link: commenti e DM da ManyChat, bio dal link in bio.')));
 }
 function siteChart(series) {
   const W = 600, H = 200, P = { l: 28, r: 8, t: 10, b: 22 };
