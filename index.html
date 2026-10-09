@@ -8,7 +8,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.googleusercontent.com; connect-src https://jhoidpugjjvvkjccyrxg.supabase.co wss://jhoidpugjjvvkjccyrxg.supabase.co; base-uri 'none'; form-action 'self'">
 <title>NoonFrame Admin</title>
 <link rel="icon" href="favicon.png">
-<link rel="stylesheet" href="/app.css?v=25">
+<link rel="stylesheet" href="/app.css?v=22">
 </head>
 <body>
 <div class="gate" id="gate"><div class="loading">Caricamento…</div></div>
@@ -17,8 +17,6 @@
     <div class="brand"><img src="logo.png" alt="" width="26" height="26"><span>NoonFrame<small>Admin</small></span></div>
     <button class="nav-i" type="button" data-view="overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Panoramica</button>
     <button class="nav-i" type="button" data-view="status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Stato<span class="badge bad" id="sbadge" hidden></span></button>
-    <div class="nav-h">Personale</div>
-    <button class="nav-i" type="button" data-view="brand" data-perm="brand_owner" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>Personal brand</button>
     <div class="nav-h">Team</div>
     <button class="nav-i" type="button" data-view="social"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 9l4 2.5-4 2.5z"/><path d="M10 18h4"/></svg>Social del team</button>
     <button class="nav-i" type="button" data-view="tasks" data-perm="tasks" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9l1.5 1.5L12 8M8 15l1.5 1.5L12 14M15 9h3M15 15h3"/></svg>Task<span class="badge soft" id="tbadge" hidden></span></button>
@@ -38,6 +36,7 @@
     <button class="nav-i" type="button" data-view="messages" data-perm="messages" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11v2a1 1 0 0 0 1 1h2l5 4V6L7 10H5a1 1 0 0 0-1 1z"/><path d="M16 9a3 3 0 0 1 0 6M19 6a7 7 0 0 1 0 12"/></svg>Messaggi</button>
     <button class="nav-i" type="button" data-view="shop" data-perm="shop" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>Crediti e offerte</button>
     <button class="nav-i" type="button" data-view="money" data-perm="money" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>Soldi</button>
+    <button class="nav-i" type="button" data-view="webclip" data-perm="money" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9.5v5l4.5-2.5z"/></svg>Clip dal web</button>
     <button class="nav-i" type="button" data-view="apis" data-perm="money" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7h3a5 5 0 0 1 0 10h-3M9 17H6A5 5 0 0 1 6 7h3M8 12h8"/></svg>API e fornitori</button>
     <div class="nav-foot"><div class="me" id="me"></div><span id="upd"></span><button class="btn sm" id="reload" type="button">Aggiorna</button><button class="btn sm ghost" id="logout" type="button">Esci</button></div>
   </nav>
@@ -46,6 +45,6 @@
 
 
 <script src="/supabase.js?v=13"></script>
-<script src="/app.js?v=25"></script>
+<script src="/app.js?v=22"></script>
 </body>
 </html>

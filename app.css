@@ -676,3 +676,17 @@ a.ch:hover { border-color: var(--line2); }
   .req-tbl td.req-mail { font-weight: 600; overflow-wrap: anywhere; }
   .req-tbl td[data-l]::before { content: attr(data-l) ': '; color: var(--muted); }
 }
+
+/* clip dal web */
+.wc-cap { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 10px; }
+.wc-cap b { font-size: 28px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.wc-cap span { color: var(--text2); font-size: 13px; }
+.wc-meter { height: 8px; border-radius: 99px; background: var(--bg2); overflow: hidden; }
+.wc-meter i { display: block; height: 100%; border-radius: 99px; background: var(--accent); transition: width .3s; }
+.wc-meter.hot i { background: var(--wait); }
+.wc-set { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.wc-tbl td.wc-title { max-width: 320px; white-space: normal; }
+.wc-tbl td.wc-title span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.wc-tbl tbody tr { cursor: default; }
+.wc-err { display: block; color: var(--bug); font-size: 12px; margin-top: 2px; }
+@media (max-width: 760px) { .wc-tbl td.wc-title { max-width: none; } .wc-tbl td.num { text-align: left; } }
