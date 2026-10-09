@@ -666,3 +666,13 @@ a.ch:hover { border-color: var(--line2); }
   .soc-row .soc-num { display: none; }
   .soc-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* richieste del link: su telefono ogni richiesta diventa una scheda */
+@media (max-width: 640px) {
+  .req-tbl thead { display: none; }
+  .req-tbl, .req-tbl tbody, .req-tbl tr, .req-tbl td { display: block; width: 100%; }
+  .req-tbl tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .req-tbl td { padding: 1px 0; border: 0; }
+  .req-tbl td.req-mail { font-weight: 600; overflow-wrap: anywhere; }
+  .req-tbl td[data-l]::before { content: attr(data-l) ': '; color: var(--muted); }
+}
