@@ -74,7 +74,7 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', webclip: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { today: 'launch', people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', webclip: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
@@ -86,10 +86,10 @@ function paintMe() {
   const tb = $('#tbadge'); if (tb && ME) { tb.hidden = !ME.my_tasks; tb.textContent = ME.my_tasks || ''; tb.title = 'Task assegnate a te'; }
 }
 function go(view) {
-  if (!allowed(view)) view = 'overview';
+  if (!allowed(view)) view = allowed('today') ? 'today' : 'overview';
   S.view = view;
   document.querySelectorAll('.nav-i').forEach((b) => b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'));
-  try { localStorage.setItem('nuvora.admin.view', view); } catch (e) { /* */ }
+  try { localStorage.setItem('nuvora.admin.view2', view); } catch (e) { /* */ }
   render();
   load(view);
 }
@@ -100,6 +100,7 @@ async function load(view, force) {
   if (!READY) return;
   try {
     if (view === 'overview' || (force && CAN('reports')) || !S.ov) { S.ov = await sql('overview'); }
+    if (view === 'today' && (force || !S.today)) S.today = await sql('today', { period: S.tper || 'today' });
     if (view === 'users' && (force || !S.users)) S.users = await sql('users', { limit: 2000 });
     if (view === 'reports' && (force || !S.reports)) S.reports = await sql('reports', {});
     if (view === 'beta' && (force || !S.beta)) S.beta = await sql('beta_list');
@@ -128,7 +129,8 @@ async function load(view, force) {
 
 function render() {
   const main = $('#main');
-  if (S.view === 'overview') rc(main, head('Panoramica'), el('div', { class: 'body' }, S.err ? el('div', { class: 'err' }, S.err) : null, S.ov ? overview(S.ov) : el('div', { class: 'loading' }, 'Caricamento…')));
+  if (S.view === 'today') renderToday(main);
+  if (S.view === 'overview') rc(main, head('Uso dell\'app'), el('div', { class: 'body' }, S.err ? el('div', { class: 'err' }, S.err) : null, S.ov ? overview(S.ov) : el('div', { class: 'loading' }, 'Caricamento…')));
   if (S.view === 'users') renderUsers(main);
   if (S.view === 'reports') renderReports(main);
   if (S.view === 'beta') renderBeta(main);
@@ -149,7 +151,8 @@ function render() {
   if (S.view === 'updates') renderUpdates(main);
 }
 const SUB = {
-  Panoramica: 'Come va l\'app oggi: iscritti, utenti attivi e funzioni più usate.',
+  Oggi: 'I numeri del giorno in un colpo d\'occhio: chi arriva, chi si iscrive, chi usa NoonFrame e cosa compra.',
+  'Uso dell\'app': 'Come usano l\'app gli utenti: iscritti, attivi e funzioni più usate negli ultimi 30 giorni.',
   Utenti: 'Tutti gli account NoonFrame. Clicca una persona per vedere dispositivi, uso e crediti.',
   Segnalazioni: 'Bug e idee mandati dall\'app. Le approvi, Claude le sistema in beta, tu le provi e le segni come fatte.',
   'Beta tester': 'Chi può provare le versioni nuove prima di tutti.',
@@ -170,6 +173,53 @@ const SUB = {
   'API e fornitori': 'I servizi che pagano le AI dell\'app: se le chiavi ci sono, quanto credito resta e dove ricaricare.',
 };
 const head = (title, ...right) => el('div', { class: 'head' }, el('div', { class: 'ttl' }, el('h1', null, title), SUB[title] ? el('p', null, SUB[title]) : null), ...right);
+
+// ------------------------------------------------------------------ oggi: i numeri del giorno (o degli ultimi 7/30 giorni) in una pagina sola
+const TPER = [['today', 'Oggi', 'ieri'], ['7', '7 giorni', 'i 7 giorni prima'], ['30', '30 giorni', 'i 30 giorni prima']];
+function renderToday(main) {
+  S.tper = S.tper || 'today';
+  const reload = async (k) => { S.tper = k; S.today = null; renderToday(main); try { S.today = await sql('today', { period: k }); S.err = null; } catch (e) { S.err = explain(e); } renderToday(main); };
+  const seg = el('div', { class: 'seg' }, ...TPER.map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(S.tper === k), onclick: () => reload(k) }, l)));
+  const body = el('div', { class: 'body' });
+  rc(main, head('Oggi', seg), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  const T = S.today; if (!T) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const prevLab = (TPER.find((x) => x[0] === S.tper) || TPER[0])[2];
+  const cmp = (now, prev) => {
+    const d = (+now || 0) - (+prev || 0);
+    return el('small', { class: 'td-cmp ' + (d > 0 ? 'td-up' : d < 0 ? 'td-dn' : '') }, (d > 0 ? '+' : '') + num(d) + ' rispetto a ' + prevLab + ' (' + num(prev) + ')');
+  };
+  const card = (label, value, sub, go_) => el(go_ ? 'button' : 'div', { class: 'kpi td-k' + (go_ ? ' td-go' : ''), type: go_ ? 'button' : null, onclick: go_ ? () => go(go_) : null },
+    el('b', null, value), el('span', null, label), sub || null);
+  const people = T.people || [];
+  rc(body, el('div', { class: 'ov' },
+    el('h2', { class: 'td-h' }, 'Persone'),
+    el('div', { class: 'kpis' },
+      card('Nuovi iscritti', num(T.signups), cmp(T.signups, T.signups_prev), CAN('users') ? 'users' : null),
+      card('Hanno usato l\'app', num(T.active), cmp(T.active, T.active_prev)),
+      card('Visite al sito', num(T.visits), T.live_now ? el('small', { class: 'td-live' }, el('i'), num(T.live_now) + ' sul sito adesso') : cmp(T.visits, T.visits_prev), 'site'),
+      card('Download e link chiesti', num(T.downloads), cmp(T.downloads, T.downloads_prev), 'site')),
+    el('h2', { class: 'td-h' }, 'Uso e soldi'),
+    el('div', { class: 'kpis' },
+      card('Ricerche di clip', num((+T.clips_app || 0) + (+T.clips_web || 0)), el('small', null, num(T.clips_app) + ' dall\'app · ' + num(T.clips_web) + ' dal sito (' + num(T.clips_web_done) + ' riuscite)'), CAN('money') ? 'webclip' : null),
+      card('Video esportati', num(T.exports), el('small', null, 'dall\'app sul computer')),
+      card('Crediti AI usati', num(T.credits_used), el('small', null, 'su ' + num(T.users_total) + ' utenti in tutto'), CAN('money') ? 'money' : null),
+      card('Acquisti', num(T.purchases), el('small', null, T.purchases ? num(T.credits_bought) + ' crediti comprati' : num(T.subs_active) + (T.subs_active === 1 ? ' abbonamento attivo' : ' abbonamenti attivi')), CAN('money') ? 'money' : null),
+      card('Segnalazioni nuove', num(T.reports_new), el('small', { class: T.reports_todo ? 'td-cmp td-up' : '' }, T.reports_todo ? num(T.reports_todo) + ' da decidere' : 'nessuna da decidere'), CAN('reports') ? 'reports' : null)),
+    S.tper !== 'today' && (T.series || []).length > 1 ? el('div', { class: 'card chart' }, el('h2', null, 'Giorno per giorno',
+      el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:var(--c1)' }), 'Nuovi iscritti'), el('span', null, el('i', { style: 'background:var(--c3)' }), 'Hanno usato l\'app'))), chart(T.series)) : null,
+    el('div', { class: 'card' }, el('h2', null, S.tper === 'today' ? 'Chi si è iscritto oggi' : 'Chi si è iscritto', el('span', { class: 'segn' }, num(people.length))),
+      people.length ? el('table', { class: 'tbl site-tbl req-tbl td-tbl' },
+        el('thead', null, el('tr', null, el('th', null, 'Chi'), T.people.some((x) => x.email) ? el('th', null, 'Email') : null, el('th', null, 'Quando'), el('th', null, 'Computer'), el('th', null, 'Cosa ha fatto'), el('th', null, 'Crediti'))),
+        el('tbody', null, ...people.map((x) => el('tr', { onclick: CAN('users') ? () => openUser(x.id) : null, style: CAN('users') ? null : 'cursor:default' },
+          el('td', { class: 'req-mail' }, x.who || '—'),
+          T.people.some((y) => y.email) ? el('td', { 'data-l': 'Email', class: 'muted' }, x.email || '') : null,
+          el('td', { 'data-l': 'Quando', class: 'muted' }, when(x.at)),
+          el('td', { 'data-l': 'Computer' }, PLAT[x.platform] || (x.web ? 'Dal sito' : '—')),
+          el('td', { 'data-l': 'Cosa ha fatto' }, [x.exports ? num(x.exports) + (x.exports === 1 ? ' video esportato' : ' video esportati') : null, x.web ? 'clip dal sito' : null].filter(Boolean).join(' · ') || el('span', { class: 'muted' }, 'ancora niente')),
+          el('td', { 'data-l': 'Crediti', class: 'num' }, num(x.credits))))))
+        : el('p', { class: 'muted', style: 'margin:0' }, S.tper === 'today' ? 'Nessun nuovo iscritto oggi, per ora.' : 'Nessun nuovo iscritto nel periodo.'))));
+}
 
 // ------------------------------------------------------------------ panoramica
 function overview(o) {
@@ -2384,8 +2434,8 @@ function renderApis(main) {
     el('p', { class: 'muted fine', style: 'margin-top:10px' }, 'Controllato ' + when(K.at) + '.'));
 }
 // ------------------------------------------------------------------ avvio
-let startView = 'overview';
-try { startView = localStorage.getItem('nuvora.admin.view') || 'overview'; } catch (e) { /* */ }
+let startView = 'today';
+try { startView = localStorage.getItem('nuvora.admin.view2') || 'today'; } catch (e) { /* */ }
 S.view = startView;
 // ------------------------------------------------------------------ accesso: Google + codice dell'app di autenticazione (2 passaggi)
 let poll = null;
@@ -2455,7 +2505,7 @@ async function enter() {
   if (!ME) { screen(el('h1', null, 'Errore'), el('p', { class: 'gate-err' }, 'Non riesco a leggere i tuoi permessi. Riprova tra poco.'), el('button', { class: 'btn', type: 'button', onclick: () => location.reload() }, 'Riprova')); return; }
   paintMe();
   $('#gate').hidden = true; $('.app').hidden = false;
-  go(allowed(S.view) ? S.view : 'overview');
+  go(allowed(S.view) ? S.view : (allowed('today') ? 'today' : 'overview'));
   load(S.view, true);
   poll = setInterval(() => { if (document.visibilityState === 'visible') load(S.view, true); }, 120000);
 }

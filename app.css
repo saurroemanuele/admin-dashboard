@@ -690,3 +690,15 @@ a.ch:hover { border-color: var(--line2); }
 .wc-tbl tbody tr { cursor: default; }
 .wc-err { display: block; color: var(--bug); font-size: 12px; margin-top: 2px; }
 @media (max-width: 760px) { .wc-tbl td.wc-title { max-width: none; } .wc-tbl td.num { text-align: left; } }
+
+/* oggi */
+.td-h { margin: 6px 0 -2px; font-size: 13px; font-weight: 600; color: var(--text3); letter-spacing: .01em; }
+.td-k { text-align: left; font: inherit; color: inherit; align-content: start; justify-items: start; width: 100%; }
+@media (max-width: 900px) { .nav-h { display: none; } }
+.td-go { cursor: pointer; transition: border-color .15s, background .15s; }
+.td-go:hover { border-color: var(--line2, rgba(255,255,255,.18)); background: var(--raised); }
+.td-go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.td-cmp.td-up { color: var(--ok); } .td-cmp.td-dn { color: var(--text3); }
+.td-live { display: inline-flex; align-items: center; gap: 6px; color: var(--ok); }
+.td-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(52,211,153,.2); }
+.td-tbl tbody tr { cursor: pointer; }
