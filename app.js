@@ -206,6 +206,7 @@ function renderToday(main) {
       card('Crediti AI usati', num(T.credits_used), el('small', null, 'su ' + num(T.users_total) + ' utenti in tutto'), CAN('money') ? 'money' : null),
       card('Acquisti', num(T.purchases), el('small', null, T.purchases ? num(T.credits_bought) + ' crediti comprati' : num(T.subs_active) + (T.subs_active === 1 ? ' abbonamento attivo' : ' abbonamenti attivi')), CAN('money') ? 'money' : null),
       card('Segnalazioni nuove', num(T.reports_new), el('small', { class: T.reports_todo ? 'td-cmp td-up' : '' }, T.reports_todo ? num(T.reports_todo) + ' da decidere' : 'nessuna da decidere'), CAN('reports') ? 'reports' : null)),
+    growthBox(),
     S.tper !== 'today' && (T.series || []).length > 1 ? el('div', { class: 'card chart' }, el('h2', null, 'Giorno per giorno',
       el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:var(--c1)' }), 'Nuovi iscritti'), el('span', null, el('i', { style: 'background:var(--c3)' }), 'Hanno usato l\'app'))), chart(T.series)) : null,
     el('div', { class: 'card' }, el('h2', null, S.tper === 'today' ? 'Chi si è iscritto oggi' : 'Chi si è iscritto', el('span', { class: 'segn' }, num(people.length))),
@@ -219,6 +220,125 @@ function renderToday(main) {
           el('td', { 'data-l': 'Cosa ha fatto' }, [x.exports ? num(x.exports) + (x.exports === 1 ? ' video esportato' : ' video esportati') : null, x.web ? 'clip dal sito' : null].filter(Boolean).join(' · ') || el('span', { class: 'muted' }, 'ancora niente')),
           el('td', { 'data-l': 'Crediti', class: 'num' }, num(x.credits))))))
         : el('p', { class: 'muted', style: 'margin:0' }, S.tper === 'today' ? 'Nessun nuovo iscritto oggi, per ora.' : 'Nessun nuovo iscritto nel periodo.'))));
+}
+
+// ---- la curva: iscritti, abbonati e incassi giorno per giorno o settimana per settimana, con gli obiettivi
+const GR_M = [
+  ['users', 'Iscritti', 'signups', 'Nuovi', 'Totale iscritti'],
+  ['subs', 'Abbonati', 'subs_new', 'Nuovi', 'Abbonati attivi'],
+  ['mrr', 'Entrate al mese', null, null, 'Entrate ricorrenti al mese (MRR)'],
+  ['revenue', 'Incassi', 'revenue', 'Incassi', null],
+  ['active', 'Utenti attivi', 'active', 'Attivi', null]];
+const geur = (v) => (+v || 0).toLocaleString('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: (+v || 0) % 1 ? 2 : 0 });
+const pct = (now, prev) => { now = +now || 0; prev = +prev || 0; if (prev < 10) return null; return Math.round((now - prev) / prev * 100); };
+function growthBox() {
+  const box = el('section', { class: 'card gr' });
+  S.gr = S.gr || { gran: 'day', m: 'users', data: {}, edit: false };
+  const G = S.gr;
+  const load = async () => {
+    try { G.data[G.gran] = await sql('growth', { gran: G.gran }); G.err = null; } catch (e) { G.err = explain(e); }
+    paint();
+  };
+  const csv = (D) => {
+    const head_ = [G.gran === 'week' ? 'Settimana dal' : 'Giorno', 'Nuovi iscritti', 'Di cui dal sito', 'Totale iscritti', 'Utenti attivi', 'Nuovi abbonati', 'Abbonati attivi', 'Entrate al mese (MRR) €', 'Incassi €'];
+    const lines = [head_].concat(D.rows.map((r) => [r.d, r.signups, r.signups_web, r.users, r.active, r.subs_new, r.subs, r.mrr, r.revenue]));
+    const blob = new Blob(['﻿' + lines.map((l) => l.join(';')).join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = el('a', { href: URL.createObjectURL(blob), download: 'noonframe-crescita-' + (G.gran === 'week' ? 'settimane' : 'giorni') + '-' + D.today + '.csv' });
+    document.body.append(a); a.click(); a.remove();
+  };
+  const targetsBox = (D) => {
+    const T = D.targets || {}, t = D.tot || {};
+    const left = T.date ? Math.max(0, Math.ceil((new Date(T.date + 'T12:00:00') - new Date()) / 864e5)) : null;
+    const pace7 = (t.u7 || 0) / 7;
+    const bar = (label, now, goal, extra) => {
+      const p = goal ? Math.min(100, Math.round(now / goal * 100)) : 0;
+      return el('div', { class: 'gr-t' }, el('div', { class: 'gr-t-h' }, el('span', null, label), el('b', null, num(now), el('small', null, ' / ' + num(goal))), el('span', { class: 'gr-t-p' }, p + '%')),
+        el('div', { class: 'gr-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(goal), 'aria-valuenow': String(now), 'aria-label': label }, el('i', { style: 'width:' + p + '%' })),
+        extra ? el('small', { class: 'muted' }, extra) : null);
+    };
+    const needU = left ? Math.max(0, Math.ceil(((T.users || 0) - (t.users || 0)) / left)) : null;
+    const needS = left ? Math.max(0, ((T.subs || 0) - (t.subs || 0)) / left * 7) : null;
+    if (G.edit) {
+      const u = el('input', { class: 'search sm', type: 'number', min: '1', value: T.users || 1000, 'aria-label': 'Obiettivo iscritti' });
+      const sb = el('input', { class: 'search sm', type: 'number', min: '1', value: T.subs || 25, 'aria-label': 'Obiettivo abbonati' });
+      const dt = el('input', { class: 'search sm', type: 'date', value: T.date || '', 'aria-label': 'Data dell\'obiettivo' });
+      const lb = el('input', { class: 'search sm', value: T.label || '', maxlength: '60', placeholder: 'Nome (es. Evento di finanza)', 'aria-label': 'Nome dell\'obiettivo' });
+      return el('div', { class: 'gr-goal gr-edit' }, el('label', null, 'Iscritti', u), el('label', null, 'Abbonati', sb), el('label', null, 'Entro il', dt), el('label', { class: 'grow' }, 'Nome', lb),
+        el('div', { class: 'row' }, el('button', { class: 'btn primary sm', type: 'button', onclick: async () => {
+          try { D.targets = await sql('growth_save', { users: +u.value, subs: +sb.value, date: dt.value, label: lb.value }); G.edit = false; toast('Obiettivi salvati'); } catch (e) { toast(explain(e)); }
+          paint();
+        } }, 'Salva'), el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { G.edit = false; paint(); } }, 'Annulla')));
+    }
+    return el('div', { class: 'gr-goal' },
+      el('div', { class: 'gr-goal-h' }, el('b', null, T.label || 'Obiettivo'), left != null ? el('span', { class: 'muted' }, (left === 0 ? 'oggi' : 'mancano ' + left + (left === 1 ? ' giorno' : ' giorni')) + ' · ' + new Date(T.date + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long' })) : null,
+        el('span', { class: 'grow' }), el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { G.edit = true; paint(); } }, 'Modifica obiettivi')),
+      el('div', { class: 'gr-goal-b' },
+        bar('Iscritti', t.users || 0, T.users || 0, needU != null ? 'Servono ' + num(needU) + ' iscritti al giorno · negli ultimi 7 giorni: ' + (Math.round(pace7 * 10) / 10).toString().replace('.', ',') + ' al giorno' : null),
+        bar('Abbonati', t.subs || 0, T.subs || 0, needS != null ? 'Servono ' + (Math.round(needS * 10) / 10).toString().replace('.', ',') + ' abbonati nuovi a settimana · negli ultimi 7 giorni: ' + num(t.s7 || 0) : null)));
+  };
+  const chartOf = (rows, m) => {
+    const M = GR_M.find((x) => x[0] === m);
+    const W = 720, H = 220, P = { l: 40, r: 10, t: 12, b: 26 };
+    const lineV = (r) => M[4] ? +r[m] || 0 : null, barV = (r) => M[2] ? +r[M[2]] || 0 : null;
+    const max = Math.max(1, ...rows.map((r) => Math.max(lineV(r) || 0, barV(r) || 0)));
+    const step = max <= 5 ? 1 : max <= 10 ? 2 : Math.pow(10, Math.floor(Math.log10(max))) * (max / Math.pow(10, Math.floor(Math.log10(max))) > 5 ? 2 : 1);
+    const top = Math.ceil(max / step) * step;
+    const n = rows.length, x = (i) => P.l + (i + 0.5) * (W - P.l - P.r) / n, y = (v) => H - P.b - v / top * (H - P.t - P.b);
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'gr-svg', role: 'img', 'aria-label': M[1] + (G.gran === 'week' ? ' settimana per settimana' : ' giorno per giorno') });
+    for (let v = 0; v <= top + 1e-9; v += step) {
+      const yy = y(v); svg.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(160,180,220,.1)' }));
+      const t = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#6F7A8E', 'font-size': 10 }); t.textContent = m === 'mrr' || m === 'revenue' ? Math.round(v) + '€' : Math.round(v); svg.append(t);
+    }
+    const bw = Math.max(3, (W - P.l - P.r) / n * 0.6);
+    const lab = (r) => new Date(r.d + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+    const every = Math.max(1, Math.ceil(n / 8));
+    rows.forEach((r, i) => {
+      const bv = barV(r);
+      if (bv) { const rc_ = svgEl('rect', { x: x(i) - bw / 2, y: y(bv), width: bw, height: y(0) - y(bv), rx: 2, fill: M[4] ? 'rgba(30,107,255,.55)' : '#1E6BFF' }); const tt = svgEl('title', {}); tt.textContent = (G.gran === 'week' ? 'Settimana dal ' : '') + lab(r) + ': ' + (m === 'revenue' ? geur(bv) : num(bv)) + ' ' + (M[3] || '').toLowerCase(); rc_.append(tt); svg.append(rc_); }
+      if (i % every === 0 || i === n - 1) { const t = svgEl('text', { x: x(i), y: H - 8, 'text-anchor': 'middle', fill: '#6F7A8E', 'font-size': 10 }); t.textContent = lab(r); svg.append(t); }
+    });
+    if (M[4]) {
+      svg.append(svgEl('polyline', { points: rows.map((r, i) => x(i) + ',' + y(lineV(r))).join(' '), fill: 'none', stroke: '#A9C7FF', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }));
+      rows.forEach((r, i) => { const c = svgEl('circle', { cx: x(i), cy: y(lineV(r)), r: n > 40 ? 0 : 3, fill: '#A9C7FF' }); const tt = svgEl('title', {}); tt.textContent = lab(r) + ': ' + (m === 'mrr' ? geur(lineV(r)) : num(lineV(r))) + ' ' + M[4].toLowerCase(); c.append(tt); svg.append(c); });
+    }
+    return el('div', null, svg, el('div', { class: 'leg gr-leg' }, M[2] ? el('span', null, el('i', { style: 'background:#1E6BFF' }), M[3] + (G.gran === 'week' ? ' nella settimana' : ' nel giorno')) : null, M[4] ? el('span', null, el('i', { style: 'background:#A9C7FF' }), M[4]) : null));
+  };
+  const paint = () => {
+    const D = G.data[G.gran];
+    const seg = el('div', { class: 'seg' }, ...[['day', 'Giorni'], ['week', 'Settimane']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(G.gran === k), onclick: () => { G.gran = k; paint(); if (!G.data[k]) load(); } }, l)));
+    const headRow = el('div', { class: 'row gr-head' }, el('h2', { class: 'grow' }, 'La curva'), seg, D && D.rows ? el('button', { class: 'btn sm ghost', type: 'button', onclick: () => csv(D) }, 'Scarica CSV') : null);
+    if (G.err) { rc(box, headRow, el('div', { class: 'err' }, G.err)); return; }
+    if (!D) { rc(box, headRow, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+    const t = D.tot || {}, rows = D.rows || [];
+    const big = {
+      users: [num(t.users), pct(t.users, t.users7ago), 'in 7 giorni', '+' + num(t.u7) + ' negli ultimi 7 giorni (' + num(t.u7p) + ' i 7 prima)'],
+      subs: [num(t.subs), pct(t.s7, t.s7p), 'nuovi vs 7 giorni prima', '+' + num(t.s7) + ' negli ultimi 7 giorni (' + num(t.s7p) + ' i 7 prima)'],
+      mrr: [geur(t.mrr), null, '', 'Quanto entra ogni mese dagli abbonamenti attivi · ' + geur(t.mrr * 12) + ' all\'anno'],
+      revenue: [geur(t.revenue), pct(t.r7, t.r7p), 'vs 7 giorni prima', geur(t.r7) + ' negli ultimi 7 giorni (' + geur(t.r7p) + ' i 7 prima) · totale da sempre'],
+      active: [num((rows[rows.length - 1] || {}).active || 0), null, '', G.gran === 'week' ? 'persone che hanno usato l\'app questa settimana' : 'persone che hanno usato l\'app oggi'] }[G.m];
+    const tabs = el('div', { class: 'gr-tabs', role: 'tablist' }, ...GR_M.map(([k, l]) => el('button', { type: 'button', role: 'tab', 'aria-selected': String(G.m === k), onclick: () => { G.m = k; paint(); } }, l)));
+    const tbl = el('div', { class: 'tblwrap gr-tbl' }, el('table', { class: 'tbl' },
+      el('thead', null, el('tr', null, el('th', null, G.gran === 'week' ? 'Settimana' : 'Giorno'), el('th', { class: 'num' }, 'Nuovi iscritti'), el('th', { class: 'num' }, 'Totale'), el('th', { class: 'num' }, 'Crescita'),
+        el('th', { class: 'num hide-m' }, 'Dal sito'), el('th', { class: 'num hide-m' }, 'Attivi'), el('th', { class: 'num' }, 'Abbonati'), el('th', { class: 'num hide-m' }, 'MRR'), el('th', { class: 'num' }, 'Incassi'))),
+      el('tbody', null, ...rows.slice().reverse().map((r, i, arr) => {
+        const prev = arr[i + 1]; const g = prev ? pct(r.users, prev.users) : null;
+        const d = new Date(r.d + 'T12:00:00');
+        return el('tr', null,
+          el('td', null, G.gran === 'week' ? 'dal ' + d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) + (r.days < 7 ? ' (in corso)' : '') : d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })),
+          el('td', { class: 'num' }, r.signups ? '+' + num(r.signups) : '0'), el('td', { class: 'num' }, num(r.users)),
+          el('td', { class: 'num ' + (g > 0 ? 'gr-up' : '') }, g == null ? '—' : (g > 0 ? '+' : '') + g + '%'),
+          el('td', { class: 'num hide-m muted' }, num(r.signups_web)), el('td', { class: 'num hide-m' }, num(r.active)),
+          el('td', { class: 'num' }, num(r.subs) + (r.subs_new ? ' (+' + num(r.subs_new) + ')' : '')), el('td', { class: 'num hide-m' }, geur(r.mrr)), el('td', { class: 'num' }, r.revenue ? geur(r.revenue) : '—'));
+      }))));
+    rc(box, headRow, targetsBox(D), tabs,
+      el('div', { class: 'gr-big' }, el('b', null, big[0]), big[1] != null ? el('span', { class: 'gr-pill ' + (big[1] > 0 ? 'up' : big[1] < 0 ? 'dn' : '') }, (big[1] > 0 ? '+' : '') + big[1] + '% ' + big[2]) : null, el('small', { class: 'muted' }, big[3])),
+      rows.length > 1 ? chartOf(rows, G.m) : el('p', { class: 'muted' }, 'Serve almeno un altro ' + (G.gran === 'week' ? 'settimana' : 'giorno') + ' di dati per disegnare la curva.'),
+      el('h3', { class: 'gr-h3' }, G.gran === 'week' ? 'Settimana per settimana' : 'Giorno per giorno'), tbl,
+      el('p', { class: 'muted gr-note' }, 'Solo clienti veri: ' + num(t.excluded) + ' account del team e di prova esclusi. Incassi stimati dai prezzi, IVA inclusa. Le settimane partono dal lunedì.'));
+  };
+  paint();
+  load();
+  return box;
 }
 
 // ------------------------------------------------------------------ panoramica
