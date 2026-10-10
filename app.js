@@ -208,6 +208,7 @@ function renderToday(main) {
       card('Segnalazioni nuove', num(T.reports_new), el('small', { class: T.reports_todo ? 'td-cmp td-up' : '' }, T.reports_todo ? num(T.reports_todo) + ' da decidere' : 'nessuna da decidere'), CAN('reports') ? 'reports' : null)),
     growthBox(),
     CAN('launch') ? funnelBox() : null,
+    CAN('launch') ? webtestBox() : null,
     S.tper !== 'today' && (T.series || []).length > 1 ? el('div', { class: 'card chart' }, el('h2', null, 'Giorno per giorno',
       el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:var(--c1)' }), 'Nuovi iscritti'), el('span', null, el('i', { style: 'background:var(--c3)' }), 'Hanno usato l\'app'))), chart(T.series)) : null,
     el('div', { class: 'card' }, el('h2', null, S.tper === 'today' ? 'Chi si è iscritto oggi' : 'Chi si è iscritto', el('span', { class: 'segn' }, num(people.length))),
@@ -389,6 +390,50 @@ function funnelBox() {
       el('div', { class: 'fn-ks' }, kp('Nuovi iscritti', t.signups, 'dall\'app e dal sito'), kp('Hanno creato clip dal sito', t.makers, 'persone diverse al giorno'), kp('Acquisti', t.buyers, 'ricariche e abbonamenti')),
       tbl,
       el('p', { class: 'muted gr-note' }, 'I passi della pagina sono visite anonime (niente cookie, chi chiede di non essere tracciato non viene contato): ogni passo conta una persona una volta al giorno, quindi i totali sono somme dei giorni. Iscritti, clip create e acquisti vengono dal database, senza team e account di prova.' + (since ? ' Il percorso si misura dal ' + since + '.' : '')));
+  };
+  paint();
+  load();
+  return box;
+}
+
+// test di 7 giorni delle clip dal sito: chi vede le clip bloccate paga? (decisione: tenere il web o farlo diventare una vetrina)
+function webtestBox() {
+  const box = el('section', { class: 'card fn wt' });
+  const load = async () => {
+    try { S.wt = await sql('webtest', {}); S.wtErr = null; } catch (e) { S.wtErr = explain(e); }
+    paint();
+  };
+  const eur = (v) => (+v || 0).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
+  const pct = (a, b) => (b ? (Math.round(a / b * 1000) / 10).toString().replace('.', ',') + '%' : '—');
+  const paint = () => {
+    const D = S.wt;
+    const head = el('div', { class: 'row gr-head' }, el('h2', { class: 'grow' }, 'Test clip dal sito: 7 giorni'), D ? el('span', { class: 'segn' }, 'Giorno ' + D.day + ' di 7') : null);
+    if (S.wtErr) { rc(box, head, el('div', { class: 'err' }, S.wtErr)); return; }
+    if (!D) { rc(box, head, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+    const t = D.tot || {}, costEur = (+t.usd || 0) / 1.16, conv = t.locked ? t.buyers / t.locked : 0;
+    const verdict = !t.locked ? ['muted', 'Ancora nessuno ha visto le clip bloccate: i numeri arrivano quando il server delle clip riparte.']
+      : conv >= 0.02 ? ['wt-ok', 'Buono: almeno 2 su 100 di chi vede le clip bloccate paga.']
+      : conv >= 0.01 ? ['wt-mid', 'Così così: tra 1 e 2 su 100 pagano. Guardiamo dove si fermano.']
+      : ['wt-bad', 'Per ora basso: meno di 1 su 100 paga.'];
+    const kp = (label, v, sub) => el('div', { class: 'fn-k' }, el('b', null, v), el('span', null, label), sub ? el('small', { class: 'muted' }, sub) : null);
+    const rows = (D.rows || []).filter((r) => Object.keys(r).some((k) => k !== 'd' && +r[k]));
+    const end = new Date(D.end).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+    rc(box, head,
+      el('div', { class: 'fn-ks wt-ks' },
+        kp('Hanno visto clip bloccate', num(t.locked), 'persone in prova con clip pronte'),
+        kp('Hanno cliccato Sblocca', num(t.unlock), pct(t.unlock, t.locked) + ' di chi le ha viste'),
+        kp('Hanno pagato', num(t.buyers), pct(t.buyers, t.locked) + ' di chi le ha viste · obiettivo 2%'),
+        kp('Incasso e costo', eur(t.eur) + ' / ' + eur(costEur), (+t.eur >= costEur ? 'gli incassi coprono il server' : 'il server costa più degli incassi'))),
+      el('p', { class: 'wt-v ' + verdict[0] }, verdict[1]),
+      rows.length ? el('div', { class: 'tblwrap gr-tbl' }, el('table', { class: 'tbl' },
+        el('thead', null, el('tr', null, el('th', null, 'Giorno'), el('th', { class: 'num hide-m' }, 'Iscritti'), el('th', { class: 'num hide-m' }, 'Clip create'), el('th', { class: 'num' }, 'Bloccate viste'),
+          el('th', { class: 'num' }, 'Sblocca'), el('th', { class: 'num hide-m' }, 'Pagamento'), el('th', { class: 'num' }, 'Pagato'), el('th', { class: 'num' }, 'Incasso'), el('th', { class: 'num hide-m' }, 'Costo'))),
+        el('tbody', null, ...rows.map((r) => el('tr', null,
+          el('td', null, new Date(r.d + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })),
+          el('td', { class: 'num hide-m muted' }, num(r.signups)), el('td', { class: 'num hide-m' }, num(r.makers)), el('td', { class: 'num' }, num(r.locked)),
+          el('td', { class: 'num' }, num(r.unlock)), el('td', { class: 'num hide-m' }, num(r.buy)), el('td', { class: 'num' }, num(r.buyers)),
+          el('td', { class: 'num' }, eur(r.eur)), el('td', { class: 'num hide-m muted' }, eur((+r.usd || 0) / 1.16))))))) : null,
+      el('p', { class: 'muted gr-note' }, 'Il test finisce ' + end + '. Se meno di 1 su 100 paga, le clip dal sito diventano una vetrina (video corti, poche clip) e chi vuole tutto passa all\'app o all\'abbonamento. Incasso stimato al prezzo pieno di listino; costo del server in euro (1 € = 1,16 $). Senza team e account di prova.'));
   };
   paint();
   load();

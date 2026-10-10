@@ -794,3 +794,10 @@ a.ch:hover { border-color: var(--line2); }
 .mpv-stage.m .mpv-frame { width: 390px; max-width: 100%; }
 .mpv-stage.d .mpv-frame { width: 100%; }
 .mpv-frame { display: block; border: 0; height: 620px; background: #050A1C; transition: width .2s; }
+
+.wt-ks { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 760px) { .wt-ks { grid-template-columns: repeat(2, 1fr); } }
+.wt-v { margin: 14px 0 0; padding: 10px 14px; border-radius: 10px; font-size: 14px; background: rgba(160,180,220,.06); }
+.wt-v.wt-ok { color: #34D399; background: rgba(52,211,153,.1); }
+.wt-v.wt-mid { color: #FBBF24; background: rgba(251,191,36,.1); }
+.wt-v.wt-bad { color: #F87171; background: rgba(248,113,113,.1); }
