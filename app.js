@@ -2032,7 +2032,7 @@ function renderMail(main) {
 }
 
 // ---- email a tutti gli utenti dell'app (con link per disiscriversi in fondo a ogni email)
-const UA_SEGS = [['oggi', 'Iscritti oggi'], ['7', 'Ultimi 7 giorni'], ['30', 'Ultimi 30 giorni'], ['tutti', 'Tutti gli utenti'], ['clienti', 'Hanno comprato'], ['gratis', 'Non hanno mai comprato']];
+const UA_SEGS = [['oggi', 'Iscritti oggi'], ['7', 'Ultimi 7 giorni'], ['30', 'Ultimi 30 giorni'], ['tutti', 'Tutti gli utenti'], ['clienti', 'Hanno comprato'], ['gratis', 'Non hanno mai comprato'], ['errori', 'Hanno avuto un errore (2 giorni)']];
 function usersMailBox(main, C, canSend, Q) {
   const box = el('section', { class: 'mail-sec ua' });
   const emailTpls = C.templates.filter((t) => tplKind(t) === 'email');
