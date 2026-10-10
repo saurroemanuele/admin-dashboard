@@ -782,3 +782,15 @@ a.ch:hover { border-color: var(--line2); }
 .fn-k b { font-size: 21px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .fn-k span { font-size: 13px; color: var(--text2); } .fn-k small { font-size: 11.5px; }
 @media (max-width: 640px) { .fn-ks { grid-template-columns: 1fr; } }
+
+/* anteprima delle email: come arrivano davvero */
+.mpv { display: grid; gap: 12px; margin: 4px 0 6px; }
+.mpv-head { display: flex; gap: 12px; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; }
+.mpv-meta { display: grid; gap: 2px; min-width: 0; }
+.mpv-meta .muted { font-size: 12px; }
+.mpv-meta b { font-size: 15px; }
+.mpv-from { font-size: 12px; }
+.mpv-stage { border-radius: 16px; background: #050A1C; border: 1px solid rgba(160,180,220,.14); padding: 0; overflow: hidden; display: flex; justify-content: center; }
+.mpv-stage.m .mpv-frame { width: 390px; max-width: 100%; }
+.mpv-stage.d .mpv-frame { width: 100%; }
+.mpv-frame { display: block; border: 0; height: 620px; background: #050A1C; transition: width .2s; }

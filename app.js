@@ -2067,9 +2067,8 @@ function usersMailBox(main, C, canSend, Q) {
       try { const r = await sql('users_test', { template_id: t.id }); toast('Prova in arrivo a ' + r.to); } catch (x) { toast(explain(x)); }
       e.currentTarget.disabled = false;
     } }, 'Manda una prova a me') : null;
-    const pv = t ? el('details', { class: 'mail-pv ua-pv' }, el('summary', null, el('span', { class: 'mail-subj' }, 'Anteprima: ', el('b', null, fillName(t.subject, 'Mario')))),
-      el('div', { class: 'mail-pv-b' }, el('pre', null, fillName(t.body, 'Mario') + '\n\n--\nRicevi questa email perché hai un account NoonFrame. Per non ricevere più email come questa: [link per disiscriversi]'),
-        el('button', { class: 'btn sm', type: 'button', onclick: () => templateModal(t, main) }, 'Modifica la bozza'))) : null;
+    // anteprima vera: l'email come arriva (stesso HTML che parte), su telefono o computer
+    const pv = t ? mailPreview(t, main) : null;
     const people = el('details', { class: 'box ua-people', open: U.open ? true : null }, el('summary', null, D && D.err ? D.err : !D ? 'Carico…' : list.length ? list.length + (list.length === 1 ? ' persona' : ' persone') + (done ? ' · ' + done + ' l\'hanno già ricevuta' : '') : 'Nessuno in questo gruppo'),
       list.length ? el('div', { class: 'tblwrap' }, el('table', { class: 'tbl' }, el('tbody', null, ...list.map((x) => el('tr', null,
         el('td', null, el('b', null, x.name || '—'), el('div', { class: 'muted', style: 'font-size:12px' }, x.email)),
@@ -2087,6 +2086,28 @@ function usersMailBox(main, C, canSend, Q) {
   paint();
   load();
   return box;
+}
+
+// anteprima di una bozza come email vera (HTML generato dal server, lo stesso che parte)
+const MPV = {};
+function mailPreview(t, main) {
+  S.mpvW = S.mpvW || 'm';
+  const frame = el('iframe', { class: 'mpv-frame', title: 'Anteprima dell\'email', sandbox: 'allow-same-origin allow-popups', referrerpolicy: 'no-referrer' });
+  const fit = () => { try { const d = frame.contentDocument; if (d && d.body) frame.style.height = Math.max(320, d.documentElement.scrollHeight) + 'px'; } catch (e) {} };
+  frame.addEventListener('load', fit);
+  const subj = el('b', null, fillName(t.subject, 'Mario'));
+  const wrap = el('div', { class: 'mpv-stage ' + S.mpvW }, frame);
+  const seg = el('div', { class: 'seg' }, ...[['m', 'Telefono'], ['d', 'Computer']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(S.mpvW === k), onclick: (e) => {
+    S.mpvW = k; wrap.className = 'mpv-stage ' + k; seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); setTimeout(fit, 60);
+  } }, l)));
+  const show = (r) => { subj.textContent = r.subject; frame.srcdoc = r.html; };
+  const key = t.id + ':' + (t.updated_at || '') + ':' + (t.body || '').length;
+  if (MPV[key]) show(MPV[key]);
+  else sql('mail_preview', { template_id: t.id }).then((r) => { MPV[key] = r; show(r); }).catch((e) => { frame.srcdoc = '<p style="font:14px sans-serif;color:#c33;padding:20px">' + String(explain(e)).replace(/[<>&]/g, '') + '</p>'; });
+  return el('div', { class: 'mpv' },
+    el('div', { class: 'mpv-head' }, el('div', { class: 'mpv-meta' }, el('span', { class: 'muted' }, 'Oggetto'), subj, el('span', { class: 'muted mpv-from' }, 'Da: NoonFrame · come la vede Mario')),
+      el('div', { class: 'row' }, seg, el('button', { class: 'btn sm', type: 'button', onclick: () => templateModal(t, main) }, 'Modifica la bozza'))),
+    wrap);
 }
 
 // ---- email automatiche: una serie che parte da sola dopo l'iscrizione (es. invito al Discord ogni 3 giorni)
