@@ -1853,7 +1853,7 @@ function renderMail(main) {
       el('td', { class: 'hide-m' }, m.subject),
       el('td', null, el('span', { class: 'pill ' + (MS[m.status] || ['', ''])[1], title: m.error || '' }, (MS[m.status] || [m.status])[0])),
       el('td', { class: 'hide-m muted' }, when(m.sent_at || m.created_at) + ' · ' + crName(m.created_by))))))) : el('p', { class: 'muted' }, 'Ancora nessuna email.'));
-  rc(body, smtpBox, usersMailBox(main, C, canSend, Q), el('section', { class: 'mail-sec' }, el('h2', null, 'Bozze: email e messaggi DM'), tpls), readyBox, qBox, log);
+  rc(body, smtpBox, usersMailBox(main, C, canSend, Q), dripBox(main, C, canSend), el('section', { class: 'mail-sec' }, el('h2', null, 'Bozze: email e messaggi DM'), tpls), readyBox, qBox, log);
   if (Q.pending) mailTimer = setTimeout(() => { if (S.view === 'mail' && !document.querySelector('.modal-bg')) crReload(main); }, 15000);
 }
 
@@ -1912,6 +1912,60 @@ function usersMailBox(main, C, canSend, Q) {
   };
   paint();
   load();
+  return box;
+}
+
+// ---- email automatiche: una serie che parte da sola dopo l'iscrizione (es. invito al Discord ogni 3 giorni)
+function dripBox(main, C, canSend) {
+  const box = el('section', { class: 'mail-sec drip' });
+  const emailTpls = C.templates.filter((t) => tplKind(t) === 'email');
+  const save = async (arg, msg) => { try { S.drip = await sql('drip_save', arg); if (msg) toast(msg); } catch (e) { toast(explain(e)); } paint(); };
+  const paint = () => {
+    const D = S.drip;
+    if (!D) { rc(box, el('h2', null, 'Email automatiche'), el('div', { class: 'loading' }, 'Caricamento…')); return; }
+    if (D.err) { rc(box, el('h2', null, 'Email automatiche'), el('div', { class: 'err' }, D.err)); return; }
+    const cfg = D.cfg || {}, on = !!cfg.on, gap = cfg.gap_days || 3;
+    const tog = el('button', { class: 'btn ' + (on ? 'bad' : 'primary'), type: 'button', disabled: canSend ? null : true, onclick: async (e) => {
+      const b = e.currentTarget;
+      if (!on && !b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Conferma: accendi'; return; }
+      await save({ op: 'cfg', on: !on }, on ? 'Email automatiche spente' : 'Email automatiche accese: partono entro un\'ora (dalle 10 alle 20)');
+    } }, on ? 'Spegni' : 'Accendi');
+    const gapIn = el('input', { class: 'search sm', type: 'number', min: '1', max: '30', value: gap, style: 'width:64px', 'aria-label': 'Giorni tra una email e l\'altra', disabled: canSend ? null : true });
+    gapIn.addEventListener('change', () => save({ op: 'cfg', gap_days: +gapIn.value }, 'Intervallo aggiornato'));
+    const steps = (D.steps || []).map((st, i) => {
+      const t = emailTpls.find((x) => x.id === st.template_id);
+      const sel = el('select', { class: 'search', 'aria-label': 'Bozza dell\'email ' + (i + 1), disabled: canSend ? null : true }, el('option', { value: '' }, '— scegli una bozza —'),
+        ...emailTpls.map((x) => el('option', { value: x.id, selected: x.id === st.template_id ? true : null }, x.name)));
+      sel.addEventListener('change', () => save({ op: 'step', id: st.id, template_id: sel.value }, 'Bozza cambiata'));
+      const dayIn = el('input', { class: 'search sm', type: 'number', min: '0', max: '120', value: st.day, style: 'width:64px', 'aria-label': 'Giorno dopo l\'iscrizione', disabled: canSend ? null : true });
+      dayIn.addEventListener('change', () => save({ op: 'step', id: st.id, day: +dayIn.value }));
+      const act = el('input', { type: 'checkbox', checked: st.active ? true : null, 'aria-label': 'Email ' + (i + 1) + ' attiva', disabled: canSend ? null : true });
+      act.addEventListener('change', () => save({ op: 'step', id: st.id, active: act.checked }));
+      return el('div', { class: 'drip-row' + (st.active ? '' : ' off') },
+        el('span', { class: 'drip-n' }, i + 1),
+        el('div', { class: 'drip-main' },
+          el('div', { class: 'drip-when' }, el('span', { class: 'muted' }, 'Giorno'), dayIn, el('span', { class: 'muted' }, 'dopo l\'iscrizione'), el('span', { class: 'grow' }),
+            el('label', { class: 'drip-act' }, act, ' attiva')),
+          sel,
+          t ? el('div', { class: 'drip-subj' }, 'Oggetto: ', el('b', null, fillName(t.subject, 'Mario'))) : null,
+          el('div', { class: 'drip-acts' },
+            el('span', { class: 'muted grow' }, st.sent + (st.sent === 1 ? ' mandata' : ' mandate') + (st.failed ? ' · ' + st.failed + ' non riuscite' : '') + ' · ' + st.waiting + ' ancora da ricevere'),
+            t ? el('button', { class: 'btn sm ghost', type: 'button', onclick: () => templateModal(t, main) }, 'Modifica testo') : null,
+            t && canSend ? el('button', { class: 'btn sm ghost', type: 'button', onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await sql('users_test', { template_id: t.id }); toast('Prova in arrivo a ' + r.to); } catch (x) { toast(explain(x)); } e.currentTarget.disabled = false; } }, 'Prova a me') : null,
+            canSend ? el('button', { class: 'btn sm ghost', type: 'button', 'aria-label': 'Togli l\'email ' + (i + 1), onclick: async (e) => {
+              const b = e.currentTarget; if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Conferma'; return; }
+              await save({ op: 'step_remove', id: st.id }, 'Email tolta dalla serie');
+            } }, 'Togli') : null)));
+    });
+    rc(box,
+      el('div', { class: 'row' }, el('h2', { class: 'grow' }, 'Email automatiche ', el('span', { class: 'pill ' + (on ? 'done' : 'no') }, on ? 'Accese' : 'Spente')), tog),
+      el('p', { class: 'muted ua-lead' }, 'Una serie di email che parte da sola per ogni utente, contando i giorni dall\'iscrizione. Ognuno riceve un\'email alla volta, mai due a meno di ', gapIn, ' giorni, solo tra le 10 e le 20. Chi si iscrive dopo entra nella serie dall\'inizio; chi si disiscrive o è bloccato non riceve più nulla.'),
+      ...steps,
+      canSend ? el('button', { class: 'btn sm', type: 'button', onclick: () => save({ op: 'step', day: ((D.steps || []).slice(-1)[0] || { day: -2 }).day + gap }, 'Email aggiunta: scegli la bozza') }, '＋ Aggiungi un\'email alla serie') : null,
+      D.last ? el('p', { class: 'muted', style: 'font-size:12px;margin:0' }, 'Ultima partita: ' + when(D.last)) : null);
+  };
+  paint();
+  sql('drip').then((d) => { S.drip = d; paint(); }).catch((e) => { S.drip = { err: explain(e) }; paint(); });
   return box;
 }
 

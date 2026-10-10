@@ -718,3 +718,15 @@ a.ch:hover { border-color: var(--line2); }
 .ua-what select { min-width: 260px; flex: 1; max-width: 460px; }
 .ua-go { gap: 8px; flex-wrap: wrap; }
 @media (max-width: 700px) { .ua-step { grid-template-columns: 1fr; gap: 6px; } .ua-n { padding-top: 0; } .ua-segs { grid-template-columns: 1fr 1fr; } }
+/* email automatiche */
+.drip { display: grid; gap: 12px; }
+.drip .ua-lead input { display: inline-block; margin: 0 4px; height: 28px; vertical-align: middle; }
+.drip-row { display: grid; grid-template-columns: 30px 1fr; gap: 12px; padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); }
+.drip-row.off { opacity: .55; }
+.drip-n { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: rgba(59,130,246,.14); color: var(--accent); font-weight: 700; font-size: 13px; }
+.drip-main { display: grid; gap: 8px; min-width: 0; }
+.drip-when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.drip-act { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text2); }
+.drip-main select { max-width: 520px; }
+.drip-subj { font-size: 13px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drip-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
