@@ -207,6 +207,7 @@ function renderToday(main) {
       card('Acquisti', num(T.purchases), el('small', null, T.purchases ? num(T.credits_bought) + ' crediti comprati' : num(T.subs_active) + (T.subs_active === 1 ? ' abbonamento attivo' : ' abbonamenti attivi')), CAN('money') ? 'money' : null),
       card('Segnalazioni nuove', num(T.reports_new), el('small', { class: T.reports_todo ? 'td-cmp td-up' : '' }, T.reports_todo ? num(T.reports_todo) + ' da decidere' : 'nessuna da decidere'), CAN('reports') ? 'reports' : null)),
     growthBox(),
+    CAN('launch') ? funnelBox() : null,
     S.tper !== 'today' && (T.series || []).length > 1 ? el('div', { class: 'card chart' }, el('h2', null, 'Giorno per giorno',
       el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:var(--c1)' }), 'Nuovi iscritti'), el('span', null, el('i', { style: 'background:var(--c3)' }), 'Hanno usato l\'app'))), chart(T.series)) : null,
     el('div', { class: 'card' }, el('h2', null, S.tper === 'today' ? 'Chi si è iscritto oggi' : 'Chi si è iscritto', el('span', { class: 'segn' }, num(people.length))),
@@ -335,6 +336,59 @@ function growthBox() {
       rows.length > 1 ? chartOf(rows, G.m) : el('p', { class: 'muted' }, 'Serve almeno un altro ' + (G.gran === 'week' ? 'settimana' : 'giorno') + ' di dati per disegnare la curva.'),
       el('h3', { class: 'gr-h3' }, G.gran === 'week' ? 'Settimana per settimana' : 'Giorno per giorno'), tbl,
       el('p', { class: 'muted gr-note' }, 'Solo clienti veri: ' + num(t.excluded) + ' account del team e di prova esclusi. Incassi stimati dai prezzi, IVA inclusa. Le settimane partono dal lunedì.'));
+  };
+  paint();
+  load();
+  return box;
+}
+
+// ---- il percorso sulla pagina delle clip: da chi la apre a chi paga (visite anonime + dati veri del database)
+const FN_STEPS = [
+  ['view', 'Hanno aperto la pagina delle clip'],
+  ['paste', 'Hanno incollato un link'],
+  ['login', 'Hanno cliccato Accedi'],
+  ['start', 'Hanno avviato le clip'],
+  ['done', 'Hanno visto le clip pronte'],
+  ['buy', 'Hanno aperto il pagamento'],
+  ['paid', 'Hanno pagato']];
+function funnelBox() {
+  const box = el('section', { class: 'card fn' });
+  S.fn = S.fn || { days: 7, data: {} };
+  const F = S.fn;
+  const load = async () => {
+    try { F.data[F.days] = await sql('funnel', { days: F.days }); F.err = null; } catch (e) { F.err = explain(e); }
+    paint();
+  };
+  const share = (a, b) => (b ? Math.round(a / b * 100) : null);
+  const paint = () => {
+    const D = F.data[F.days];
+    const seg = el('div', { class: 'seg' }, ...[[7, '7 giorni'], [30, '30 giorni']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(F.days === k), onclick: () => { F.days = k; paint(); if (!F.data[k]) load(); } }, l)));
+    const headRow = el('div', { class: 'row gr-head' }, el('h2', { class: 'grow' }, 'Dalla pagina delle clip al pagamento'), seg);
+    if (F.err) { rc(box, headRow, el('div', { class: 'err' }, F.err)); return; }
+    if (!D) { rc(box, headRow, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+    const t = D.tot || {}, first = +t.view || 0;
+    const steps = el('ol', { class: 'fn-steps' }, ...FN_STEPS.map(([k, label], i) => {
+      const n = +t[k] || 0, prev = i ? +t[FN_STEPS[i - 1][0]] || 0 : null, w = first ? Math.max(n ? 2 : 0, Math.min(100, n / first * 100)) : 0;
+      const sp = i ? share(n, prev) : null;
+      return el('li', null, el('div', { class: 'fn-l' }, el('span', null, label), el('b', null, num(n))),
+        el('div', { class: 'fn-bar' }, el('i', { style: 'width:' + w + '%' })),
+        el('small', { class: 'muted' }, i === 0 ? 'persone diverse al giorno, sommate' : sp == null ? '—' : sp + '% del passo prima' + (first ? ' · ' + share(n, first) + '% di chi ha aperto' : '')));
+    }));
+    const kp = (label, v, sub) => el('div', { class: 'fn-k' }, el('b', null, num(v)), el('span', null, label), sub ? el('small', { class: 'muted' }, sub) : null);
+    const rows = (D.rows || []).filter((r) => Object.keys(r).some((k) => k !== 'd' && +r[k]));
+    const tbl = rows.length ? el('div', { class: 'tblwrap gr-tbl' }, el('table', { class: 'tbl' },
+      el('thead', null, el('tr', null, el('th', null, 'Giorno'), el('th', { class: 'num' }, 'Aperta'), el('th', { class: 'num' }, 'Link'), el('th', { class: 'num hide-m' }, 'Accedi'), el('th', { class: 'num' }, 'Avviate'),
+        el('th', { class: 'num hide-m' }, 'Pronte'), el('th', { class: 'num hide-m' }, 'Pagamento'), el('th', { class: 'num' }, 'Pagato'), el('th', { class: 'num hide-m' }, 'Iscritti'), el('th', { class: 'num' }, 'Acquisti'))),
+      el('tbody', null, ...rows.map((r) => el('tr', null,
+        el('td', null, new Date(r.d + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })),
+        el('td', { class: 'num' }, num(r.view)), el('td', { class: 'num' }, num(r.paste)), el('td', { class: 'num hide-m' }, num(r.login)), el('td', { class: 'num' }, num(r.start)),
+        el('td', { class: 'num hide-m' }, num(r.done)), el('td', { class: 'num hide-m' }, num(r.buy)), el('td', { class: 'num' }, num(r.paid)), el('td', { class: 'num hide-m muted' }, num(r.signups)), el('td', { class: 'num' }, num(r.buyers))))))) : null;
+    const since = D.since ? new Date(D.since + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'long' }) : null;
+    rc(box, headRow,
+      first ? steps : el('p', { class: 'muted', style: 'margin:0' }, 'Ancora nessuna visita misurata sulla pagina delle clip: i numeri arrivano dalle prossime visite.'),
+      el('div', { class: 'fn-ks' }, kp('Nuovi iscritti', t.signups, 'dall\'app e dal sito'), kp('Hanno creato clip dal sito', t.makers, 'persone diverse al giorno'), kp('Acquisti', t.buyers, 'ricariche e abbonamenti')),
+      tbl,
+      el('p', { class: 'muted gr-note' }, 'I passi della pagina sono visite anonime (niente cookie, chi chiede di non essere tracciato non viene contato): ogni passo conta una persona una volta al giorno, quindi i totali sono somme dei giorni. Iscritti, clip create e acquisti vengono dal database, senza team e account di prova.' + (since ? ' Il percorso si misura dal ' + since + '.' : '')));
   };
   paint();
   load();
