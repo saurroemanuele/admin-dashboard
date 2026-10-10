@@ -2048,7 +2048,7 @@ function dripBox(main, C, canSend) {
     const tog = el('button', { class: 'btn ' + (on ? 'bad' : 'primary'), type: 'button', disabled: canSend ? null : true, onclick: async (e) => {
       const b = e.currentTarget;
       if (!on && !b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Conferma: accendi'; return; }
-      await save({ op: 'cfg', on: !on }, on ? 'Email automatiche spente' : 'Email automatiche accese: partono entro un\'ora (dalle 10 alle 20)');
+      await save({ op: 'cfg', on: !on }, on ? 'Email automatiche spente' : 'Email automatiche accese');
     } }, on ? 'Spegni' : 'Accendi');
     const gapIn = el('input', { class: 'search sm', type: 'number', min: '1', max: '30', value: gap, style: 'width:64px', 'aria-label': 'Giorni tra una email e l\'altra', disabled: canSend ? null : true });
     gapIn.addEventListener('change', () => save({ op: 'cfg', gap_days: +gapIn.value }, 'Intervallo aggiornato'));
@@ -2079,7 +2079,8 @@ function dripBox(main, C, canSend) {
     });
     rc(box,
       el('div', { class: 'row' }, el('h2', { class: 'grow' }, 'Email automatiche ', el('span', { class: 'pill ' + (on ? 'done' : 'no') }, on ? 'Accese' : 'Spente')), tog),
-      el('p', { class: 'muted ua-lead' }, 'Una serie di email che parte da sola per ogni utente, contando i giorni dall\'iscrizione. Ognuno riceve un\'email alla volta, mai due a meno di ', gapIn, ' giorni, solo tra le 10 e le 20. Chi si iscrive dopo entra nella serie dall\'inizio; chi si disiscrive o è bloccato non riceve più nulla.'),
+      el('p', { class: 'muted ua-lead' }, 'Una serie di email che parte da sola per ogni utente, contando i giorni dall\'iscrizione (controllo ogni 5 minuti). Ognuno riceve un\'email alla volta, mai due a meno di ', gapIn, ' giorni. Chi si iscrive dopo entra nella serie dall\'inizio; chi si disiscrive o è bloccato non riceve più nulla.'),
+      on && cfg.start_at && new Date(cfg.start_at) > new Date() ? el('div', { class: 'mail-state warn' }, el('i'), el('span', null, el('b', null, 'Partenza programmata: '), new Date(cfg.start_at).toLocaleString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) + '. A quell\'ora la prima email arriva a tutti gli iscritti; chi si iscrive dopo la riceve 1 giorno dopo l\'iscrizione.')) : null,
       ...steps,
       canSend ? el('button', { class: 'btn sm', type: 'button', onclick: () => save({ op: 'step', day: ((D.steps || []).slice(-1)[0] || { day: -2 }).day + gap }, 'Email aggiunta: scegli la bozza') }, '＋ Aggiungi un\'email alla serie') : null,
       D.last ? el('p', { class: 'muted', style: 'font-size:12px;margin:0' }, 'Ultima partita: ' + when(D.last)) : null);
