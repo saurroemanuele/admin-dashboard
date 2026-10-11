@@ -207,7 +207,9 @@ function renderToday(main) {
       card('Ricerche di clip', num((+T.clips_app || 0) + (+T.clips_web || 0)), el('small', null, num(T.clips_app) + ' dall\'app · ' + num(T.clips_web) + ' dal sito (' + num(T.clips_web_done) + ' riuscite)'), CAN('money') ? 'webclip' : null),
       card('Video esportati', num(T.exports), el('small', null, 'dall\'app sul computer')),
       card('Crediti AI usati', num(T.credits_used), el('small', null, 'su ' + num(T.users_total) + ' utenti in tutto'), CAN('money') ? 'money' : null),
-      card('Acquisti', num(T.purchases), el('small', null, T.purchases ? num(T.credits_bought) + ' crediti comprati' : num(T.subs_active) + (T.subs_active === 1 ? ' abbonamento attivo' : ' abbonamenti attivi')), CAN('money') ? 'money' : null),
+      card('Pagamenti', num(T.payments != null ? T.payments : T.purchases), T.payments != null
+        ? el('small', null, (CAN('money') ? eur(T.revenue) + ' incassati · ' : '') + num(T.packs) + (T.packs === 1 ? ' ricarica · ' : ' ricariche · ') + num(T.subs_new) + (T.subs_new === 1 ? ' abbonamento' : ' abbonamenti'))
+        : el('small', null, num(T.credits_bought) + ' crediti comprati'), CAN('money') ? 'revenue' : null),
       card('Segnalazioni nuove', num(T.reports_new), el('small', { class: T.reports_todo ? 'td-cmp td-up' : '' }, T.reports_todo ? num(T.reports_todo) + ' da decidere' : 'nessuna da decidere'), CAN('reports') ? 'reports' : null)),
     growthBox(),
     CAN('launch') ? funnelBox() : null,
