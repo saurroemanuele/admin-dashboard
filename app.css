@@ -801,3 +801,58 @@ a.ch:hover { border-color: var(--line2); }
 .wt-v.wt-ok { color: #34D399; background: rgba(52,211,153,.1); }
 .wt-v.wt-mid { color: #FBBF24; background: rgba(251,191,36,.1); }
 .wt-v.wt-bad { color: #F87171; background: rgba(248,113,113,.1); }
+
+/* fatturato */
+.fin-hero { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 0; border-radius: 16px; overflow: hidden; border: 1px solid var(--line2);
+  background: radial-gradient(120% 140% at 0% 0%, rgba(52,211,153,.10), transparent 55%), var(--panel); }
+.fin-main { padding: 22px 24px; display: grid; gap: 6px; align-content: start; }
+.fin-lbl { color: var(--text2); font-size: 13px; font-weight: 500; }
+.fin-big { font-size: 46px; line-height: 1.05; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; color: var(--ok); }
+.fin-big.neg { color: var(--bug); }
+.fin-eq { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text); }
+.fin-eq span { display: inline-flex; gap: 6px; align-items: baseline; }
+.fin-eq i { font-style: normal; color: var(--text3); font-size: 12px; }
+.fin-stripe { display: grid; border-left: 1px solid var(--line); background: rgba(10,12,17,.35); }
+.fin-stripe > div { padding: 12px 18px; display: grid; grid-template-columns: 1fr auto; gap: 0 12px; align-items: baseline; border-top: 1px solid var(--line); }
+.fin-stripe > div:first-child { border-top: 0; }
+.fin-stripe span { color: var(--text2); font-size: 12.5px; }
+.fin-stripe b { font-size: 18px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.fin-stripe small { grid-column: 1 / -1; color: var(--text3); font-size: 11.5px; }
+.fin-chart { display: flex; align-items: flex-end; gap: 3px; height: 170px; padding-top: 6px; }
+.fin-col { flex: 1 1 0; min-width: 2px; height: 100%; display: flex; align-items: flex-end; gap: 1px; border-radius: 3px; }
+.fin-col:hover { background: var(--raised); }
+.fin-col i { flex: 1; display: block; border-radius: 3px 3px 1px 1px; }
+.fin-col i.g, .fin-dot.g { background: var(--ok); }
+.fin-col i.c, .fin-dot.c { background: var(--wait); opacity: .8; }
+.fin-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+.fin-today { display: grid; gap: 4px; padding: 30px 0; }
+.fin-today b { font-size: 34px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.fin-today span { color: var(--text3); font-size: 12.5px; }
+.fin-bar { grid-template-columns: minmax(0, 170px) 1fr auto; }
+.fin-bar span:first-child { display: grid; }
+.fin-bar small { color: var(--text3); font-size: 11.5px; }
+.fin-bar .track i { background: var(--ok); }
+.fin-tbl { max-height: 460px; height: auto; }
+.fin-tbl td.fin-what { max-width: 280px; overflow: hidden; text-overflow: ellipsis; color: var(--text2); }
+.fin-who { display: grid; justify-items: start; text-align: left; }
+.fin-who .linkish { text-align: left; }
+.fin-who small { color: var(--text3); font-size: 11.5px; }
+.fin-form { display: grid; grid-template-columns: 150px minmax(0, 1fr) 160px 110px auto; gap: 8px; margin-bottom: 14px; }
+.fin-form .search { width: 100%; min-width: 0; }
+.fin-cats { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.fin-cats span { padding: 3px 9px; border-radius: 999px; background: var(--raised); color: var(--text2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.fin-exps { display: grid; }
+.fin-exp { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
+.fin-exp .grow { display: grid; min-width: 0; }
+.fin-exp .grow b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-exp small { color: var(--text3); font-size: 11.5px; }
+.fin-exp .fin-d { width: 52px; color: var(--text3); font-size: 12px; flex: none; }
+.fin-exp > b.num { font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) {
+  .fin-hero { grid-template-columns: 1fr; }
+  .fin-stripe { border-left: 0; border-top: 1px solid var(--line); }
+  .fin-big { font-size: 38px; }
+  .fin-form { grid-template-columns: 1fr 1fr; }
+  .fin-form .search[type="text"] { grid-column: 1 / -1; }
+  .fin-form button { grid-column: 1 / -1; }
+}

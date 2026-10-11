@@ -74,7 +74,7 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 // ------------------------------------------------------------------ navigazione
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
-const VIEW_PERM = { today: 'launch', people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', webclip: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
+const VIEW_PERM = { today: 'launch', people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', revenue: 'money', webclip: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
@@ -111,6 +111,7 @@ async function load(view, force) {
     if (view === 'status' && (force || !S.status)) S.status = await sql('status');
     if (view === 'messages' && (force || !S.messages)) S.messages = await sql('messages');
     if (view === 'money' && (force || !S.money)) S.money = await sql('money', { days: S.mdays || 30 });
+    if (view === 'revenue' && (force || !S.fin)) S.fin = await loadFin();
     if (view === 'webclip' && (force || !S.wc)) S.wc = await sql('webclip', { days: S.wdays || 30 });
     if (view === 'apis' && (force || !S.keys)) S.keys = await loadKeys();
     if (view === 'tasks' && (force || !S.tasks)) S.tasks = await sql('tasks');
@@ -146,6 +147,7 @@ function render() {
   if (S.view === 'status') renderStatus(main);
   if (S.view === 'messages') renderMessages(main);
   if (S.view === 'money') renderMoney(main);
+  if (S.view === 'revenue') renderRevenue(main);
   if (S.view === 'webclip') renderWebclip(main);
   if (S.view === 'apis') renderApis(main);
   if (S.view === 'updates') renderUpdates(main);
@@ -168,6 +170,7 @@ const SUB = {
   Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
   Messaggi: 'Avvisi e novità che arrivano nella campanella dell\'app.',
   'Clip dal web': 'Le clip create dal sito: quanti lavori, quanto costano davvero (AI e server) e quanto rendono. Da qui metti il tetto di spesa o le fermi.',
+  Fatturato: 'I soldi veri da Stripe: quanto è entrato, chi ha pagato e cosa, quanto ci resta dopo commissioni, costi e spese.',
   Soldi: 'Quanto costano davvero le AI e quanti crediti sono ancora in giro.',
   Aggiornamenti: 'Tutte le versioni di NoonFrame: cosa c\'è in beta, cosa hanno gli utenti e cosa è cambiato ogni volta.',
   'API e fornitori': 'I servizi che pagano le AI dell\'app: se le chiavi ci sono, quanto credito resta e dove ricaricare.',
@@ -2640,6 +2643,196 @@ function renderMoney(main) {
         : el('p', { class: 'muted', style: 'margin:0' }, 'Nessuno nel periodo'))),
     el('p', { class: 'muted fine' }, 'Il costo API è calcolato dai crediti scalati: ' + (M.per_usd || 280) + ' crediti = 1 $ di costo dei fornitori, cambio 1 $ = ' + ECO.fx + ' € (lo cambi in Crediti e offerte → Ipotesi dei conti). '
       + 'Il costo reale lo vedi sulle bollette di fal, ElevenLabs e Anthropic: se si discosta di molto, va corretto il listino dei crediti.')));
+}
+// ------------------------------------------------------------------ fatturato: i soldi veri da Stripe, chi ha pagato e cosa, costi, spese e utile
+const FIN_PER = [['today', 'Oggi'], ['7', '7 giorni'], ['30', '30 giorni'], ['month', 'Mese'], ['all', 'Sempre']];
+const FIN_CAT = { server: 'Server', ai: 'AI', email: 'Email', strumenti: 'Strumenti', marketing: 'Marketing', tasse: 'Tasse e contributi', altro: 'Altro' };
+const FIN_PM = { apple_pay: 'Apple Pay', google_pay: 'Google Pay', link: 'Link', visa: 'Visa', mastercard: 'Mastercard', amex: 'Amex', paypal: 'PayPal', sepa_debit: 'SEPA', klarna: 'Klarna', carta: 'Carta' };
+const romeDay = (iso) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+const eur2 = (n) => (n < 0 ? '−' : '') + eur(Math.abs(+n || 0));
+async function loadFin(body) {
+  const { data, error } = await sb.functions.invoke('admin-finance', { body: body || {} });
+  if (error) {
+    let code = '';
+    try { code = (await error.context.json()).error; } catch (e) { /* */ }
+    throw { code: code === 'no_perm' ? 'no_perm' : code === 'mfa_required' ? 'mfa' : code === 'auth' ? 'auth' : 'db',
+      message: code === 'stripe_missing' ? 'Stripe non è collegato.' : code === 'stripe_error' ? 'Stripe non risponde: riprova tra poco.' : 'Non riesco a leggere il fatturato.' };
+  }
+  return data;
+}
+function finSince(per) {
+  const today = romeDay(new Date().toISOString());
+  if (per === 'today') return today;
+  if (per === 'month') return today.slice(0, 8) + '01';
+  if (per === 'all') return '0000-00-00';
+  const d = new Date(); d.setDate(d.getDate() - (+per - 1)); return romeDay(d.toISOString());
+}
+function renderRevenue(main) {
+  S.fper = S.fper || '30';
+  const reload = async () => { S.fin = null; S.err = null; renderRevenue(main); try { S.fin = await loadFin(); } catch (e) { S.err = explain(e); } renderRevenue(main); };
+  const seg = el('div', { class: 'seg' }, ...FIN_PER.map(([k, l]) => el('button', { type: 'button', 'aria-pressed': String(S.fper === k), onclick: () => { S.fper = k; renderRevenue(main); } }, l)));
+  const body = el('div', { class: 'body' });
+  rc(main, head('Fatturato', seg, el('button', { class: 'btn', type: 'button', onclick: reload }, 'Aggiorna')), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  const F = S.fin; if (!F) { rc(body, el('div', { class: 'loading' }, 'Leggo i pagamenti da Stripe…')); return; }
+
+  const fx = ECO.fx || 0.9, since = finSince(S.fper);
+  const inP = (iso) => romeDay(iso) >= since;
+  const all = F.rows || [];
+  const rows = all.filter((r) => inP(r.at));
+  const sales = rows.filter((r) => r.kind === 'sale'), refunds = rows.filter((r) => r.kind === 'refund');
+  const money = rows.filter((r) => r.kind !== 'payout');   // vendite, rimborsi, contestazioni, commissioni extra
+  const gross = sales.reduce((a, r) => a + r.gross, 0);
+  const refunded = -refunds.reduce((a, r) => a + r.gross, 0);
+  const fees = money.reduce((a, r) => a + r.fee, 0) - money.filter((r) => r.kind === 'fee').reduce((a, r) => a + r.gross, 0);
+  const net = money.reduce((a, r) => a + r.net, 0);
+  const costRows = (F.costs || []).filter((c) => c.d >= since);
+  const costApp = costRows.reduce((a, c) => a + c.app, 0) * fx, costWeb = costRows.reduce((a, c) => a + c.web, 0) * fx, cost = costApp + costWeb;
+  const exps = (F.expenses || []).filter((x) => x.day >= since);
+  const spent = exps.reduce((a, x) => a + x.amount, 0);
+  const profit = net - spent;            // soldi veri: quello che resta dopo Stripe e le spese pagate
+  const margin = net - cost;             // quanto rende ogni vendita al netto di quello che consuma
+  const paidOut = -all.filter((r) => r.kind === 'payout').reduce((a, r) => a + r.gross, 0);
+  const P = new Map((F.people || []).map((p) => [p.id, p]));
+  const who = (uid) => { const p = uid && P.get(uid); return p ? (p.name || p.email) : 'Sconosciuto'; };
+  const userBtn = (uid, label) => uid && CAN('users') ? el('button', { class: 'linkish', type: 'button', onclick: (e) => { e.stopPropagation(); openUser(uid); } }, label) : el('span', null, label);
+
+  // primo blocco: quanto è entrato e quanto resta davvero
+  const kpi = (v, label, sub, cls) => el('div', { class: 'kpi' + (cls ? ' ' + cls : '') }, el('b', null, v), el('span', null, label), sub ? el('small', null, sub) : null);
+  const nBuyers = new Set(sales.map((r) => r.uid).filter(Boolean)).size;
+  const hero = el('div', { class: 'fin-hero' },
+    el('div', { class: 'fin-main' },
+      el('span', { class: 'fin-lbl' }, 'Soldi rimasti nel periodo'),
+      el('b', { class: 'fin-big' + (profit < 0 ? ' neg' : '') }, eur2(profit)),
+      el('div', { class: 'fin-eq' },
+        el('span', null, el('i', null, 'Incassato'), eur(gross)),
+        refunded ? el('span', null, el('i', null, 'Rimborsi'), '−' + eur(refunded)) : null,
+        el('span', null, el('i', null, 'Stripe'), '−' + eur(fees)),
+        el('span', null, el('i', null, 'Spese pagate'), '−' + eur(spent)))),
+    el('div', { class: 'fin-stripe' },
+      el('div', null, el('span', null, 'In arrivo su Stripe'), el('b', null, eur(F.balance.pending)), el('small', null, nextAvail(all))),
+      el('div', null, el('span', null, 'Pronto da bonificare'), el('b', null, eur(F.balance.available)), el('small', null, 'arriva sul conto col prossimo bonifico')),
+      el('div', null, el('span', null, 'Già sul conto'), el('b', null, eur(paidOut)), el('small', null, 'bonifici di Stripe, da sempre'))));
+  const kpis = el('div', { class: 'kpis' },
+    kpi(eur(gross), 'Incassato', num(sales.length) + (sales.length === 1 ? ' pagamento' : ' pagamenti') + ' da ' + num(nBuyers) + (nBuyers === 1 ? ' persona' : ' persone')),
+    kpi(eur(net), 'Netto dopo Stripe', gross ? 'commissioni ' + eur(fees) + ' (' + (fees / gross * 100).toFixed(1).replace('.', ',') + '%)' : 'commissioni comprese'),
+    kpi(eur(cost), 'Costo AI e server', eur(costApp) + ' app · ' + eur(costWeb) + ' clip dal sito'),
+    kpi(gross ? Math.round(margin / gross * 100) + '%' : '—', 'Margine sulle vendite', gross ? eur2(margin) + ' dopo Stripe e consumi' : 'arriva con le prime vendite', margin < 0 ? 'hot' : ''),
+    kpi(sales.length ? eur(gross / sales.length) : '—', 'Scontrino medio', subsLine(sales)));
+
+  // incassi giorno per giorno
+  const days = []; { const start = since === '0000-00-00' ? (all.length ? romeDay(all[all.length - 1].at) : romeDay(new Date().toISOString())) : since;
+    const d0 = new Date(start + 'T12:00:00'), end = romeDay(new Date().toISOString());
+    for (let d = d0; romeDay(d.toISOString()) <= end && days.length < 400; d = new Date(d.getTime() + 864e5)) days.push(romeDay(d.toISOString())); }
+  const byDay = new Map(days.map((d) => [d, { g: 0, n: 0, c: 0 }]));
+  for (const r of sales) { const x = byDay.get(romeDay(r.at)); if (x) { x.g += r.gross; x.n++; } }
+  for (const c of costRows) { const x = byDay.get(c.d); if (x) x.c += (c.app + c.web) * fx; }
+  const maxD = Math.max(0.01, ...[...byDay.values()].map((x) => Math.max(x.g, x.c)));
+  const chart = days.length > 1 ? el('div', { class: 'fin-chart', role: 'img', 'aria-label': 'Incassi e costi giorno per giorno' },
+    ...days.map((d) => { const x = byDay.get(d); return el('div', { class: 'fin-col', title: shortDay(d) + ': ' + eur(x.g) + ' incassati' + (x.n ? ' (' + x.n + ')' : '') + ' · ' + eur(x.c) + ' di costi' },
+      el('i', { class: 'g', style: 'height:' + (x.g ? Math.max(3, x.g / maxD * 100) : 0) + '%' }), el('i', { class: 'c', style: 'height:' + (x.c ? Math.max(2, x.c / maxD * 100) : 0) + '%' })); }))
+    : el('div', { class: 'fin-today' }, el('b', null, eur(gross)), el('span', null, num(sales.length) + ' pagamenti oggi · ' + eur(cost) + ' di costi'));
+
+  // cosa si vende
+  const items = new Map();
+  for (const r of sales) { const k = r.what.split(' · ')[0]; const x = items.get(k) || { n: 0, g: 0 }; x.n++; x.g += r.gross; items.set(k, x); }
+  const itemRows = [...items.entries()].sort((a, b) => b[1].g - a[1].g);
+
+  // clienti: tutto quello che ha comprato ognuno
+  const cust = new Map();
+  for (const r of rows.filter((x) => x.kind === 'sale' || x.kind === 'refund')) {
+    const k = r.uid || 'x'; const c = cust.get(k) || { uid: r.uid, n: 0, g: 0, net: 0, what: [], first: r.at, last: r.at };
+    if (r.kind === 'sale') { c.n++; c.g += r.gross; c.what.push(r.what.split(' · ')[0]); } else c.g += r.gross;
+    c.net += r.net; if (r.at < c.first) c.first = r.at; if (r.at > c.last) c.last = r.at; cust.set(k, c);
+  }
+  const custRows = [...cust.values()].sort((a, b) => b.g - a.g);
+  const tally = (arr) => { const m = new Map(); arr.forEach((w) => m.set(w, (m.get(w) || 0) + 1)); return [...m.entries()].map(([w, n]) => (n > 1 ? n + '× ' : '') + w).join(', '); };
+  const planOf = (p) => p && p.plan && p.plan !== 'free' ? p.plan.charAt(0).toUpperCase() + p.plan.slice(1) : 'Nessuno';
+
+  const custTbl = custRows.length ? el('div', { class: 'tblwrap gr-tbl fin-tbl' }, el('table', { class: 'tbl' },
+    el('thead', null, el('tr', null, ...['Cliente', 'Cosa ha comprato', 'Acquisti', 'Speso', 'Netto per noi', 'Piano ora', 'Crediti rimasti', 'Ultimo acquisto'].map((h, i) => el('th', { class: i >= 2 && i <= 4 || i === 6 ? 'num' : null }, h)))),
+    el('tbody', null, ...custRows.map((c) => { const p = P.get(c.uid);
+      return el('tr', { onclick: () => c.uid && CAN('users') && openUser(c.uid) },
+        el('td', null, el('div', { class: 'fin-who' }, userBtn(c.uid, who(c.uid)), p && p.email && p.name ? el('small', null, p.email) : null)),
+        el('td', { class: 'fin-what' }, tally(c.what) || '—'),
+        el('td', { class: 'num' }, num(c.n)), el('td', { class: 'num' }, el('b', null, eur(c.g))), el('td', { class: 'num' }, eur(c.net)),
+        el('td', null, el('span', { class: 'pill ' + (planOf(p) === 'Nessuno' ? 'no' : 'done') }, planOf(p))),
+        el('td', { class: 'num' }, p ? num(p.credits) : '—'), el('td', null, when(c.last))); }))))
+    : el('p', { class: 'muted', style: 'margin:0' }, 'Nessun cliente in questo periodo.');
+
+  // tutti i movimenti
+  const statusOf = (r) => r.refunded ? ['bad', 'Rimborsato'] : r.part_refunded ? ['new', 'Rimborso parziale'] : r.kind === 'payout' ? ['no', 'Bonifico'] : r.status === 'available' ? ['done', 'Incassato'] : ['queued', 'In arrivo ' + new Date(r.avail).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })];
+  const payTbl = rows.length ? el('div', { class: 'tblwrap gr-tbl fin-tbl' }, el('table', { class: 'tbl' },
+    el('thead', null, el('tr', null, ...['Quando', 'Chi', 'Cosa', 'Metodo', 'Lordo', 'Stripe', 'Netto', 'Stato'].map((h, i) => el('th', { class: i >= 4 && i <= 6 ? 'num' : null }, h)))),
+    el('tbody', null, ...rows.map((r) => { const [cls, st] = statusOf(r);
+      return el('tr', { onclick: () => r.uid && CAN('users') && openUser(r.uid) },
+        el('td', null, new Date(r.at).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })),
+        el('td', null, r.kind === 'payout' ? el('span', { class: 'muted' }, 'Stripe') : userBtn(r.uid, who(r.uid))),
+        el('td', { class: 'fin-what' }, r.what),
+        el('td', null, FIN_PM[r.method] || r.method || '—'),
+        el('td', { class: 'num' }, eur2(r.gross)), el('td', { class: 'num muted' }, r.fee ? '−' + eur(r.fee) : '—'), el('td', { class: 'num' }, el('b', null, eur2(r.net))),
+        el('td', null, el('span', { class: 'pill ' + cls }, st))); }))))
+    : el('p', { class: 'muted', style: 'margin:0' }, 'Nessun movimento in questo periodo.');
+
+  // spese registrate a mano (bollette, ricariche dei fornitori...)
+  const fDay = el('input', { class: 'search', type: 'date', value: romeDay(new Date().toISOString()), 'aria-label': 'Giorno della spesa' });
+  const fLabel = el('input', { class: 'search', type: 'text', maxlength: '80', placeholder: 'Es. Ricarica Modal', 'aria-label': 'Voce della spesa' });
+  const fCat = el('select', { class: 'search', 'aria-label': 'Categoria' }, ...Object.entries(FIN_CAT).map(([k, l]) => el('option', { value: k }, l)));
+  const fAmt = el('input', { class: 'search', type: 'number', min: '0.01', step: '0.01', inputmode: 'decimal', placeholder: '0,00', 'aria-label': 'Importo in euro' });
+  const addBtn = el('button', { class: 'btn primary', type: 'submit' }, 'Aggiungi spesa');
+  const form = el('form', { class: 'fin-form', onsubmit: async (e) => {
+    e.preventDefault();
+    const amount = Number(String(fAmt.value).replace(',', '.'));
+    if (!fLabel.value.trim()) { toast('Scrivi cosa hai pagato'); fLabel.focus(); return; }
+    if (!(amount > 0)) { toast('Metti un importo'); fAmt.focus(); return; }
+    addBtn.disabled = true;
+    try { await loadFin({ op: 'expense_add', day: fDay.value, label: fLabel.value.trim(), category: fCat.value, amount }); S.fin = await loadFin(); toast('Spesa aggiunta'); }
+    catch (er) { toast(explain(er)); addBtn.disabled = false; return; }
+    renderRevenue(main);
+  } }, fDay, fLabel, fCat, fAmt, addBtn);
+  const expByCat = new Map(); exps.forEach((x) => expByCat.set(x.category, (expByCat.get(x.category) || 0) + x.amount));
+  const expList = exps.length ? el('div', { class: 'fin-exps' }, ...exps.map((x) => el('div', { class: 'fin-exp' },
+    el('span', { class: 'fin-d' }, shortDay(x.day)), el('span', { class: 'grow' }, el('b', null, x.label), el('small', null, FIN_CAT[x.category] + ' · ' + String(x.created_by || '').split('@')[0])),
+    el('b', { class: 'num' }, eur(x.amount)),
+    el('button', { class: 'btn sm ghost', type: 'button', 'aria-label': 'Togli la spesa ' + x.label, onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try { await loadFin({ op: 'expense_remove', id: x.id }); S.fin = await loadFin(); toast('Spesa tolta'); } catch (er) { toast(explain(er)); }
+      renderRevenue(main);
+    } }, 'Togli'))))
+    : el('p', { class: 'muted', style: 'margin:0' }, 'Nessuna spesa in questo periodo. Aggiungi qui le ricariche di Modal, Anthropic, fal e gli abbonamenti agli strumenti: così l\'utile è quello vero.');
+
+  rc(body, el('div', { class: 'ov' },
+    !F.balance.live ? el('div', { class: 'box ask', style: 'margin:0' }, el('h3', null, 'Stripe in modalità prova'), el('p', null, 'Questi non sono pagamenti veri.')) : null,
+    hero, kpis,
+    el('div', { class: 'cards' },
+      el('div', { class: 'card' }, el('h2', null, 'Incassi e costi giorno per giorno', el('span', { class: 'leg' }, el('span', null, el('i', { class: 'fin-dot g' }), 'incassi'), el('span', null, el('i', { class: 'fin-dot c' }), 'AI e server'))), chart),
+      el('div', { class: 'card' }, el('h2', null, 'Cosa si vende'), itemRows.length ? el('div', { class: 'bars' }, ...itemRows.map(([k, x]) => el('div', { class: 'bar-r fin-bar' },
+          el('span', null, k, el('small', null, x.n + (x.n === 1 ? ' vendita' : ' vendite'))), el('span', { class: 'track' }, el('i', { style: 'width:' + Math.max(3, x.g / itemRows[0][1].g * 100) + '%' })), el('b', null, eur(x.g)))))
+        : el('p', { class: 'muted', style: 'margin:0' }, 'Ancora nessuna vendita nel periodo.'))),
+    el('div', { class: 'card' }, el('h2', null, 'Clienti', el('span', { class: 'leg' }, num(custRows.filter((c) => c.uid).length) + ' nel periodo')), custTbl),
+    el('div', { class: 'card' }, el('h2', null, 'Tutti i movimenti', el('span', { class: 'leg' }, rows.length ? el('button', { class: 'btn sm ghost', type: 'button', onclick: () => finCsv(rows, who) }, 'Scarica CSV') : null)), payTbl),
+    el('div', { class: 'card' }, el('h2', null, 'Spese', el('span', { class: 'leg' }, eur(spent) + ' nel periodo')), form,
+      expByCat.size > 1 ? el('div', { class: 'fin-cats' }, ...[...expByCat.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => el('span', null, FIN_CAT[k] + ' ' + eur(v)))) : null, expList),
+    el('p', { class: 'muted fine' }, 'Incassi, commissioni, rimborsi e bonifici arrivano direttamente da Stripe (aggiornato alle ' + new Date(F.at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) + '). '
+      + '"Soldi rimasti" = netto di Stripe meno le spese registrate (ricariche dei fornitori, abbonamenti): sono i soldi veri. '
+      + 'Il costo di AI e server è stimato dai lavori fatti (cambio 1 $ = ' + String(fx).replace('.', ',') + ' €) e serve per il margine sulle vendite: non si toglie due volte. '
+      + 'Tasse e contributi del forfettario non sono tolti: si calcolano sul totale dell\'anno.' + (F.truncated ? ' Mostro gli ultimi 3.000 movimenti.' : ''))));
+}
+function nextAvail(all) {
+  const p = all.filter((r) => r.kind === 'sale' && r.status === 'pending' && r.avail).map((r) => r.avail).sort()[0];
+  return p ? 'disponibile dal ' + new Date(p).toLocaleDateString('it-IT', { day: 'numeric', month: 'long' }) : 'niente in attesa';
+}
+function subsLine(sales) {
+  const s = sales.filter((r) => r.sub).length, p = sales.length - s;
+  return sales.length ? num(p) + (p === 1 ? ' ricarica' : ' ricariche') + ' · ' + num(s) + (s === 1 ? ' abbonamento' : ' abbonamenti') : 'nessuna vendita';
+}
+function finCsv(rows, who) {
+  const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const n = (v) => (+v || 0).toFixed(2).replace('.', ',');
+  const lines = [['Data', 'Cliente', 'Cosa', 'Metodo', 'Lordo €', 'Commissione €', 'Netto €', 'Stato'].join(';'),
+    ...rows.map((r) => [new Date(r.at).toLocaleString('it-IT', { timeZone: 'Europe/Rome' }), r.kind === 'payout' ? 'Stripe' : who(r.uid), r.what, FIN_PM[r.method] || r.method || '', n(r.gross), n(r.fee), n(r.net), r.refunded ? 'rimborsato' : r.status].map((v, i) => i >= 4 && i <= 6 ? v : q(v)).join(';'))];
+  const a = el('a', { href: URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })), download: 'noonframe-fatturato-' + romeDay(new Date().toISOString()) + '.csv' });
+  document.body.append(a); a.click(); a.remove();
 }
 // ------------------------------------------------------------------ clip dal web: quanto costano davvero (AI + server Modal), tetto di spesa e pausa
 const MODAL_WS = 'saurroemanuele-work';
