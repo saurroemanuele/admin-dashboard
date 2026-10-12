@@ -2837,6 +2837,33 @@ function renderRevenue(main) {
         el('td', { class: 'num' }, p ? num(p.credits) : '—'), el('td', null, when(c.last))); }))))
     : el('p', { class: 'muted', style: 'margin:0' }, 'Nessun cliente in questo periodo.');
 
+  // pagamenti uno dopo l'altro, nell'ordine in cui sono arrivati (il piu' recente in alto, o il primo in alto)
+  const payList = sales.slice().sort((a, b) => (S.finOld ? 1 : -1) * (new Date(a.at) - new Date(b.at)));
+  const payShow = payList.slice(0, S.finMore ? payList.length : 25);
+  const dayLbl = (iso) => { const d = romeDay(iso), t = romeDay(new Date().toISOString()), y = romeDay(new Date(Date.now() - 864e5).toISOString());
+    if (d === t) return 'Oggi'; if (d === y) return 'Ieri'; const x = new Date(iso).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Rome' }); return x.charAt(0).toUpperCase() + x.slice(1); };
+  const payRows = []; let lastDay = null;
+  for (const r of payShow) {
+    const d = romeDay(r.at);
+    if (d !== lastDay) {
+      const dayTot = payList.filter((x) => romeDay(x.at) === d);
+      payRows.push(el('div', { class: 'fin-pday' }, el('b', null, dayLbl(r.at)), el('span', null, num(dayTot.length) + (dayTot.length === 1 ? ' pagamento · ' : ' pagamenti · ') + eur(dayTot.reduce((a, x) => a + x.gross, 0)))));
+      lastDay = d;
+    }
+    const [cls, stt] = r.refunded ? ['bad', 'Rimborsato'] : r.part_refunded ? ['new', 'Rimborso parziale'] : r.status === 'available' ? ['done', 'Incassato'] : ['queued', 'In arrivo'];
+    payRows.push(el('div', { class: 'fin-pay', onclick: () => r.uid && CAN('users') && openUser(r.uid) },
+      el('time', null, new Date(r.at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })),
+      el('span', { class: 'grow' }, userBtn(r.uid, who(r.uid)), el('small', null, r.what + (FIN_PM[r.method] || r.method ? ' · ' + (FIN_PM[r.method] || r.method) : ''))),
+      el('span', { class: 'pill ' + cls }, stt),
+      el('b', { class: 'num' }, eur2(r.gross))));
+  }
+  const payCard = el('div', { class: 'card' },
+    el('h2', null, 'Pagamenti', el('span', { class: 'leg' },
+      el('button', { class: 'btn sm ghost', type: 'button', 'aria-pressed': S.finOld ? 'true' : 'false', onclick: () => { S.finOld = !S.finOld; renderRevenue(main); } }, S.finOld ? 'Più vecchi in alto' : 'Più recenti in alto'))),
+    payList.length ? el('div', { class: 'fin-pays' }, ...payRows,
+      payList.length > payShow.length ? el('button', { class: 'btn sm ghost fin-more', type: 'button', onclick: () => { S.finMore = true; renderRevenue(main); } }, 'Mostra tutti (' + num(payList.length) + ')') : null)
+      : el('p', { class: 'muted', style: 'margin:0' }, 'Nessun pagamento in questo periodo.'));
+
   // tutti i movimenti
   const statusOf = (r) => r.refunded ? ['bad', 'Rimborsato'] : r.part_refunded ? ['new', 'Rimborso parziale'] : r.kind === 'payout' ? ['no', 'Bonifico'] : r.status === 'available' ? ['done', 'Incassato'] : ['queued', 'In arrivo ' + new Date(r.avail).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })];
   const payTbl = rows.length ? el('div', { class: 'tblwrap gr-tbl fin-tbl' }, el('table', { class: 'tbl' },
@@ -2880,7 +2907,7 @@ function renderRevenue(main) {
 
   rc(body, el('div', { class: 'ov' },
     !F.balance.live ? el('div', { class: 'box ask', style: 'margin:0' }, el('h3', null, 'Stripe in modalità prova'), el('p', null, 'Questi non sono pagamenti veri.')) : null,
-    hero, kpis,
+    hero, kpis, payCard,
     el('div', { class: 'cards' },
       el('div', { class: 'card' }, el('h2', null, 'Incassi e costi giorno per giorno', el('span', { class: 'leg' }, el('span', null, el('i', { class: 'fin-dot g' }), 'incassi'), el('span', null, el('i', { class: 'fin-dot c' }), 'AI e server'))), chart),
       el('div', { class: 'card' }, el('h2', null, 'Cosa si vende'), itemRows.length ? el('div', { class: 'bars' }, ...itemRows.map(([k, x]) => el('div', { class: 'bar-r fin-bar' },
