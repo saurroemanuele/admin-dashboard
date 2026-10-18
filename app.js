@@ -1396,7 +1396,7 @@ function renderBrand(main) {
   const per = S.bdays === 1 ? 'oggi' : S.bdays === 365 ? 'nell\'ultimo anno' : 'negli ultimi ' + S.bdays + ' giorni';
   const views = st.view || 0, started = st.q1 || 0, sub = st.submit || 0;
   const steps = [['Aprono la pagina', views], ['Rispondono alla 1ª domanda', st.q1 || 0], ['2ª domanda', st.q2 || 0], ['3ª domanda', st.q3 || 0], ['4ª domanda', st.q4 || 0],
-    ['5ª domanda', st.q5 || 0], ['Lasciano l\'email', sub], ['Scaricano la guida', st.download || 0], ['Vanno alla newsletter', st.newsletter || 0]];
+    ['5ª domanda', st.q5 || 0], ['Lasciano l\'email', sub], ['Scaricano la guida', st.download || 0], ['Vanno alla newsletter', st.newsletter || 0], ['Cliccano su Prenota la call', st.call || 0]];
   const srcTbl = (B.sources || []).length ? el('table', { class: 'tbl site-tbl' },
     el('thead', null, el('tr', null, el('th', null, 'Da dove'), el('th', { class: 'r' }, 'Visite'), el('th', { class: 'r' }, 'Iniziano'), el('th', { class: 'r' }, 'Lead'), el('th', { class: 'r' }, '%'))),
     el('tbody', null, ...B.sources.map((x) => el('tr', null, el('td', null, BRAND_SRC[x.k] || x.k), el('td', { class: 'r' }, num(x.visits)), el('td', { class: 'r' }, num(x.started)),
