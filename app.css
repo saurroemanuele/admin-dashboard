@@ -872,3 +872,9 @@ a.ch:hover { border-color: var(--line2); }
 .fin-pay > b.num { font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
 .fin-more { justify-self: center; margin-top: 12px; }
 @media (max-width: 600px) { .fin-pay { grid-template-columns: 40px minmax(0, 1fr) auto; } .fin-pay .pill { display: none; } }
+
+/* affiliati */
+.aff-form { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: end; }
+.aff-f { display: grid; gap: 4px; font-size: 12px; color: var(--text3); }
+.aff-f .search { min-width: 0; }
+.aff-card.aff-off { opacity: .65; }
