@@ -1,6 +1,9 @@
 if (window.top !== window.self) { document.documentElement.innerHTML = ""; throw new Error("frame"); }
 
 const PROJECT = 'jhoidpugjjvvkjccyrxg';
+// Nome della società: per ora NoonFrame. Quando cambia nome, si cambia solo qui (menu, accesso, titolo e icona si aggiornano da soli).
+const COMPANY = { name: 'NoonFrame', label: 'Admin' };
+document.title = COMPANY.name + ' · ' + COMPANY.label;
 // screenshot delle segnalazioni arrivate prima degli account (restano nell'archivio di questa pagina)
 const FEATURE_NAMES = {
   'job.export': 'Video esportati', 'job.prepare': 'Video importati', 'job.transcribe': 'Sottotitoli creati', 'job.trrange': 'Sottotitoli di un pezzo',
@@ -76,7 +79,11 @@ const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports:
 let lastLoad = null;
 // 'brand' = sezione Personal brand del proprietario (lead di saurroemanuele.com): NON rimuoverla quando modifichi il pannello
 const VIEW_PERM = { today: 'launch', people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', revenue: 'money', webclip: 'money', aff: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team', brand: 'brand_owner' };
-const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
+// sezioni aggiunte da altri file (studio.js: Panoramica, app del portafoglio, Pagine satellite). Ognuna: { match(view), allowed(view), load(view, force), render(main) }
+const EXT = [];
+const extOf = (v) => EXT.find((x) => x.match(String(v || '')));
+function extHook(name, ...a) { for (const x of EXT) if (typeof x[name] === 'function') { try { x[name](...a); } catch (e) { console.error(e); } } }
+const allowed = (v) => { const x = extOf(v); if (x) return x.allowed(v); return v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v])); };
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
   document.querySelectorAll('.nav-i[data-perm]').forEach((b) => { b.hidden = !CAN(b.dataset.perm); });
@@ -87,12 +94,13 @@ function paintMe() {
   const tb = $('#tbadge'); if (tb && ME) { tb.hidden = !ME.my_tasks; tb.textContent = ME.my_tasks || ''; tb.title = 'Task assegnate a te'; }
 }
 function go(view) {
-  if (!allowed(view)) view = allowed('today') ? 'today' : 'overview';
+  if (!allowed(view)) view = 'home';
   S.view = view;
   document.querySelectorAll('.nav-i').forEach((b) => b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'));
-  try { localStorage.setItem('nuvora.admin.view2', view); } catch (e) { /* */ }
+  try { localStorage.setItem('nf.admin.view3', view); } catch (e) { /* */ }
   render();
   load(view);
+  extHook('onGo', view);
 }
 document.querySelectorAll('.nav-i').forEach((b) => b.addEventListener('click', () => go(b.dataset.view)));
 $('#reload').addEventListener('click', () => { S.rdet = {}; load(S.view, true); });
@@ -122,6 +130,7 @@ async function load(view, force) {
     if (view === 'people' && (force || !S.ppl)) S.ppl = await sql('people_stats');
     if (view === 'updates' && (force || !S.rel)) S.rel = await sql('releases');
     if (view === 'team' && (force || !S.team)) { [S.team, S.audit] = await Promise.all([sql('team'), sql('audit', { limit: 120 })]); }
+    { const x = extOf(view); if (x) await x.load(view, force); }
     if (force) { ME = { ...ME, ...(await sql('me')) }; paintMe(); }
     S.err = null; lastLoad = new Date();
   } catch (e) { S.err = explain(e); }
@@ -156,6 +165,7 @@ function render() {
   if (S.view === 'apis') renderApis(main);
   if (S.view === 'aff') renderAffiliates(main);
   if (S.view === 'updates') renderUpdates(main);
+  { const x = extOf(S.view); if (x) x.render(main); }
 }
 const SUB = {
   Oggi: 'I numeri del giorno in un colpo d\'occhio: chi arriva, chi si iscrive, chi usa NoonFrame e cosa compra.',
@@ -300,22 +310,22 @@ function growthBox() {
     const n = rows.length, x = (i) => P.l + (i + 0.5) * (W - P.l - P.r) / n, y = (v) => H - P.b - v / top * (H - P.t - P.b);
     const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'gr-svg', role: 'img', 'aria-label': M[1] + (G.gran === 'week' ? ' settimana per settimana' : ' giorno per giorno') });
     for (let v = 0; v <= top + 1e-9; v += step) {
-      const yy = y(v); svg.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(160,180,220,.1)' }));
-      const t = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#6F7A8E', 'font-size': 10 }); t.textContent = m === 'mrr' || m === 'revenue' ? Math.round(v) + '€' : Math.round(v); svg.append(t);
+      const yy = y(v); svg.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(246,244,239,.07)' }));
+      const t = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#8A867D', 'font-size': 10 }); t.textContent = m === 'mrr' || m === 'revenue' ? Math.round(v) + '€' : Math.round(v); svg.append(t);
     }
     const bw = Math.max(3, (W - P.l - P.r) / n * 0.6);
     const lab = (r) => new Date(r.d + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
     const every = Math.max(1, Math.ceil(n / 8));
     rows.forEach((r, i) => {
       const bv = barV(r);
-      if (bv) { const rc_ = svgEl('rect', { x: x(i) - bw / 2, y: y(bv), width: bw, height: y(0) - y(bv), rx: 2, fill: M[4] ? 'rgba(30,107,255,.55)' : '#1E6BFF' }); const tt = svgEl('title', {}); tt.textContent = (G.gran === 'week' ? 'Settimana dal ' : '') + lab(r) + ': ' + (m === 'revenue' ? geur(bv) : num(bv)) + ' ' + (M[3] || '').toLowerCase(); rc_.append(tt); svg.append(rc_); }
-      if (i % every === 0 || i === n - 1) { const t = svgEl('text', { x: x(i), y: H - 8, 'text-anchor': 'middle', fill: '#6F7A8E', 'font-size': 10 }); t.textContent = lab(r); svg.append(t); }
+      if (bv) { const rc_ = svgEl('rect', { x: x(i) - bw / 2, y: y(bv), width: bw, height: y(0) - y(bv), rx: 2, fill: M[4] ? 'rgba(57,135,229,.5)' : '#3987E5' }); const tt = svgEl('title', {}); tt.textContent = (G.gran === 'week' ? 'Settimana dal ' : '') + lab(r) + ': ' + (m === 'revenue' ? geur(bv) : num(bv)) + ' ' + (M[3] || '').toLowerCase(); rc_.append(tt); svg.append(rc_); }
+      if (i % every === 0 || i === n - 1) { const t = svgEl('text', { x: x(i), y: H - 8, 'text-anchor': 'middle', fill: '#8A867D', 'font-size': 10 }); t.textContent = lab(r); svg.append(t); }
     });
     if (M[4]) {
-      svg.append(svgEl('polyline', { points: rows.map((r, i) => x(i) + ',' + y(lineV(r))).join(' '), fill: 'none', stroke: '#A9C7FF', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }));
-      rows.forEach((r, i) => { const c = svgEl('circle', { cx: x(i), cy: y(lineV(r)), r: n > 40 ? 0 : 3, fill: '#A9C7FF' }); const tt = svgEl('title', {}); tt.textContent = lab(r) + ': ' + (m === 'mrr' ? geur(lineV(r)) : num(lineV(r))) + ' ' + M[4].toLowerCase(); c.append(tt); svg.append(c); });
+      svg.append(svgEl('polyline', { points: rows.map((r, i) => x(i) + ',' + y(lineV(r))).join(' '), fill: 'none', stroke: '#86B6EF', 'stroke-width': 2.2, 'stroke-linejoin': 'round' }));
+      rows.forEach((r, i) => { const c = svgEl('circle', { cx: x(i), cy: y(lineV(r)), r: n > 40 ? 0 : 3, fill: '#86B6EF' }); const tt = svgEl('title', {}); tt.textContent = lab(r) + ': ' + (m === 'mrr' ? geur(lineV(r)) : num(lineV(r))) + ' ' + M[4].toLowerCase(); c.append(tt); svg.append(c); });
     }
-    return el('div', null, svg, el('div', { class: 'leg gr-leg' }, M[2] ? el('span', null, el('i', { style: 'background:#1E6BFF' }), M[3] + (G.gran === 'week' ? ' nella settimana' : ' nel giorno')) : null, M[4] ? el('span', null, el('i', { style: 'background:#A9C7FF' }), M[4]) : null));
+    return el('div', null, svg, el('div', { class: 'leg gr-leg' }, M[2] ? el('span', null, el('i', { style: 'background:#3987E5' }), M[3] + (G.gran === 'week' ? ' nella settimana' : ' nel giorno')) : null, M[4] ? el('span', null, el('i', { style: 'background:#86B6EF' }), M[4]) : null));
   };
   const paint = () => {
     const D = G.data[G.gran];
@@ -483,16 +493,16 @@ function chart(days) {
   const x = (i) => P.l + (i + 0.5) * (W - P.l - P.r) / days.length, y = (v) => H - P.b - v / nice * (H - P.t - P.b);
   for (let k = 0; k <= 4; k++) {
     const v = nice * k / 4, yy = y(v);
-    s.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(160,180,220,.1)' }));
-    const t = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#6F7A8E', 'font-size': 10 }); t.textContent = Math.round(v); s.append(t);
+    s.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(246,244,239,.07)' }));
+    const t = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#8A867D', 'font-size': 10 }); t.textContent = Math.round(v); s.append(t);
   }
   const bw = Math.max(3, (W - P.l - P.r) / days.length * 0.55);
   days.forEach((d, i) => {
-    if (d.signups) s.append(svgEl('rect', { x: x(i) - bw / 2, y: y(d.signups), width: bw, height: y(0) - y(d.signups), rx: 2, fill: '#1E6BFF' }));
-    if (i % 7 === 0 || i === days.length - 1) { const t = svgEl('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', fill: '#6F7A8E', 'font-size': 10 }); t.textContent = new Date(d.d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }); s.append(t); }
+    if (d.signups) s.append(svgEl('rect', { x: x(i) - bw / 2, y: y(d.signups), width: bw, height: y(0) - y(d.signups), rx: 2, fill: '#3987E5' }));
+    if (i % 7 === 0 || i === days.length - 1) { const t = svgEl('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', fill: '#8A867D', 'font-size': 10 }); t.textContent = new Date(d.d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }); s.append(t); }
   });
-  s.append(svgEl('polyline', { points: days.map((d, i) => x(i) + ',' + y(d.active)).join(' '), fill: 'none', stroke: '#A9C7FF', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
-  const last = days[days.length - 1]; if (last) s.append(svgEl('circle', { cx: x(days.length - 1), cy: y(last.active), r: 3.5, fill: '#A9C7FF' }));
+  s.append(svgEl('polyline', { points: days.map((d, i) => x(i) + ',' + y(d.active)).join(' '), fill: 'none', stroke: '#86B6EF', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+  const last = days[days.length - 1]; if (last) s.append(svgEl('circle', { cx: x(days.length - 1), cy: y(last.active), r: 3.5, fill: '#86B6EF' }));
   return s;
 }
 
@@ -1339,7 +1349,7 @@ function renderSite(main) {
     linkRequests(W.requests),
     S.sdays > 1 ? el('div', { class: 'cards' },
       el('div', { class: 'card chart', style: 'grid-column:1/-1' }, el('h2', null, 'Giorno per giorno',
-        el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:#6EA5FF' }), 'Visite'), el('span', null, el('i', { style: 'background:#34D399' }), 'Click su Scarica'))),
+        el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:#5598E7' }), 'Visite'), el('span', null, el('i', { style: 'background:#199E70' }), 'Click su Scarica'))),
         siteChart(W.series))) : null,
     el('div', { class: 'cards' },
       el('div', { class: 'card' }, el('h2', null, 'Da dove arrivano'), srcRows(W.sources || [])),
@@ -1440,7 +1450,7 @@ function renderBrand(main) {
       el('div', { class: 'card' }, el('h2', null, 'Fin dove arrivano'), funnel(steps)),
       el('div', { class: 'card' }, el('h2', null, 'Da dove arrivano'), srcTbl)),
     S.bdays > 1 && (B.series || []).length ? el('div', { class: 'card chart' }, el('h2', null, 'Giorno per giorno',
-      el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:#6EA5FF' }), 'Visite'), el('span', null, el('i', { style: 'background:#34D399' }), 'Lead'))),
+      el('span', { class: 'leg' }, el('span', null, el('i', { style: 'background:#5598E7' }), 'Visite'), el('span', null, el('i', { style: 'background:#199E70' }), 'Lead'))),
       siteChart((B.series || []).map((d) => ({ d: d.d, visits: d.visits, dl: d.leads })))) : null,
     ansCards.length ? el('div', { class: 'cards', style: 'grid-template-columns:repeat(auto-fit,minmax(260px,1fr))' }, ansCards) : null,
     el('p', { class: 'muted fine' }, 'Il funnel conta le persone (una sessione del browser), senza cookie e senza IP. I lead arrivati prima dell\'8 ottobre non hanno il percorso passo per passo. Le fonti vengono dal parametro ?src= dei link: commenti e DM da ManyChat, bio dal link in bio.')));
@@ -1455,16 +1465,16 @@ function siteChart(series) {
   const x = (i) => P.l + (i + 0.5) * step, y = (v) => H - P.b - v / nice * (H - P.t - P.b);
   for (let k = 0; k <= 4; k++) {
     const v = nice * k / 4, yy = y(v);
-    s.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(160,180,220,.1)' }));
-    const t = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#6F7A8E', 'font-size': 10 }); t.textContent = Math.round(v); s.append(t);
+    s.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(246,244,239,.07)' }));
+    const t = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#8A867D', 'font-size': 10 }); t.textContent = Math.round(v); s.append(t);
   }
   const bw = Math.max(1.5, Math.min(18, step * 0.55));
   const every = days.length > 45 ? 14 : days.length > 14 ? 7 : 1;
   days.forEach((d, i) => {
-    if (d.visits) { const r = svgEl('rect', { x: x(i) - bw / 2, y: y(d.visits), width: bw, height: y(0) - y(d.visits), rx: 1.5, fill: '#6EA5FF' }); const tt = svgEl('title', {}); tt.textContent = shortDay(d.d) + ': ' + d.visits + ' visite, ' + (d.dl || 0) + ' click su Scarica'; r.append(tt); s.append(r); }
-    if (i % every === 0 || (i === days.length - 1 && i % every >= every / 2)) { const tx = svgEl('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', fill: '#6F7A8E', 'font-size': 10 }); tx.textContent = shortDay(d.d); s.append(tx); }
+    if (d.visits) { const r = svgEl('rect', { x: x(i) - bw / 2, y: y(d.visits), width: bw, height: y(0) - y(d.visits), rx: 1.5, fill: '#5598E7' }); const tt = svgEl('title', {}); tt.textContent = shortDay(d.d) + ': ' + d.visits + ' visite, ' + (d.dl || 0) + ' click su Scarica'; r.append(tt); s.append(r); }
+    if (i % every === 0 || (i === days.length - 1 && i % every >= every / 2)) { const tx = svgEl('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', fill: '#8A867D', 'font-size': 10 }); tx.textContent = shortDay(d.d); s.append(tx); }
   });
-  if (days.length > 1) s.append(svgEl('polyline', { points: days.map((d, i) => x(i) + ',' + y(d.dl || 0)).join(' '), fill: 'none', stroke: '#34D399', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+  if (days.length > 1) s.append(svgEl('polyline', { points: days.map((d, i) => x(i) + ',' + y(d.dl || 0)).join(' '), fill: 'none', stroke: '#199E70', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
   return s;
 }
 function funnel(steps) {
@@ -1485,19 +1495,19 @@ function launchChart(L) {
   const x = (i) => P.l + (i + 0.5) * step, y = (v) => H - P.b - v / nice * (H - P.t - P.b);
   for (let k = 0; k <= 4; k++) {
     const v = nice * k / 4, yy = y(v);
-    s.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(160,180,220,.1)' }));
-    const tx = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#6F7A8E', 'font-size': 10 }); tx.textContent = Math.round(v); s.append(tx);
+    s.append(svgEl('line', { x1: P.l, x2: W - P.r, y1: yy, y2: yy, stroke: 'rgba(246,244,239,.07)' }));
+    const tx = svgEl('text', { x: P.l - 6, y: yy + 3, 'text-anchor': 'end', fill: '#8A867D', 'font-size': 10 }); tx.textContent = Math.round(v); s.append(tx);
   }
   const bw = Math.max(1.5, step * 0.34);
   days.forEach((d, i) => {
-    if (d.future) s.append(svgEl('rect', { x: x(i) - step / 2, y: P.t, width: step, height: H - P.t - P.b, fill: 'rgba(160,180,220,.025)' }));
-    if (d.dl) s.append(svgEl('rect', { x: x(i) - bw - 0.5, y: y(d.dl), width: bw, height: y(0) - y(d.dl), rx: 1.5, fill: '#6EA5FF' }));
-    if (d.accounts) s.append(svgEl('rect', { x: x(i) + 0.5, y: y(d.accounts), width: bw, height: y(0) - y(d.accounts), rx: 1.5, fill: '#1E6BFF' }));
-    if (i % 7 === 0 || (i === days.length - 1 && i % 7 >= 4)) { const tx = svgEl('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', fill: '#6F7A8E', 'font-size': 10 }); tx.textContent = shortDay(d.d); s.append(tx); }
+    if (d.future) s.append(svgEl('rect', { x: x(i) - step / 2, y: P.t, width: step, height: H - P.t - P.b, fill: 'rgba(246,244,239,.025)' }));
+    if (d.dl) s.append(svgEl('rect', { x: x(i) - bw - 0.5, y: y(d.dl), width: bw, height: y(0) - y(d.dl), rx: 1.5, fill: '#5598E7' }));
+    if (d.accounts) s.append(svgEl('rect', { x: x(i) + 0.5, y: y(d.accounts), width: bw, height: y(0) - y(d.accounts), rx: 1.5, fill: '#3987E5' }));
+    if (i % 7 === 0 || (i === days.length - 1 && i % 7 >= 4)) { const tx = svgEl('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', fill: '#8A867D', 'font-size': 10 }); tx.textContent = shortDay(d.d); s.append(tx); }
   });
   const past = days.filter((d) => !d.future);
-  if (past.length > 1) s.append(svgEl('polyline', { points: past.map((d, i) => x(i) + ',' + y(d.active || 0)).join(' '), fill: 'none', stroke: '#34D399', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
-  if (past.length) { const i = past.length - 1; s.append(svgEl('circle', { cx: x(i), cy: y(past[i].active || 0), r: 3.5, fill: '#34D399' })); }
+  if (past.length > 1) s.append(svgEl('polyline', { points: past.map((d, i) => x(i) + ',' + y(d.active || 0)).join(' '), fill: 'none', stroke: '#199E70', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+  if (past.length) { const i = past.length - 1; s.append(svgEl('circle', { cx: x(i), cy: y(past[i].active || 0), r: 3.5, fill: '#199E70' })); }
   return s;
 }
 function launchGoals(main) {
@@ -2413,15 +2423,18 @@ const PERMS = [
   ['messages', 'Messaggi agli utenti', 'Pubblicare avvisi e novità nella home dell\'app'],
   ['beta', 'Beta tester', 'Chi può provare le versioni nuove'],
   ['team', 'Team e permessi', 'Aggiungere persone e vedere il registro delle azioni'],
+  ['apps', 'App del portafoglio', 'Scrivere i numeri delle app partner (es. Strikt), collegare il loro server e modificare le app'],
+  ['satellite', 'Pagine satellite: gestirle tutte', 'Creare pagine e account e scrivere i numeri di tutte le pagine. Senza, ognuno aggiorna solo le pagine che gestisce'],
+  ['sat_access', 'Pagine satellite: accessi', 'Vedere e cambiare email, telefono e password degli account. Ogni apertura resta nel registro. Lo decide solo il proprietario', 'satellite'],
 ];
 const ROLES = [
   ['admin', 'Admin', 'Tutto', PERMS.map((p) => p[0])],
   ['supporto', 'Supporto', 'Utenti e segnalazioni', ['launch', 'tasks', 'reports', 'reports_decide', 'users', 'users_edit', 'messages']],
   ['sviluppo', 'Sviluppo', 'Segnalazioni e beta', ['launch', 'tasks', 'reports', 'reports_decide', 'beta']],
-  ['marketing', 'Marketing', 'Numeri, prezzi, offerte e messaggi', ['launch', 'tasks', 'shop', 'messages']],
+  ['marketing', 'Marketing', 'Numeri, prezzi, offerte, messaggi e pagine satellite', ['launch', 'tasks', 'shop', 'messages', 'satellite']],
   ['lettura', 'Solo lettura', 'Numeri e task', ['launch', 'tasks']],
 ];
-const OWNER_ONLY = ['creators', 'creators_send', 'founders'];   // chi puo' solo assegnare e chi puo' anche mandare: lo decide solo il proprietario
+const OWNER_ONLY = ['creators', 'creators_send', 'founders', 'sat_access'];   // chi puo' solo assegnare e chi puo' anche mandare: lo decide solo il proprietario
 const permName = (k) => (PERMS.find((p) => p[0] === k) || [k, k])[1];
 function memberState(m) {
   if (m.role === 'owner') return ['done', 'Proprietario'];
@@ -2470,6 +2483,11 @@ function auditText(a) {
     case 'report_reply': return 'ha risposto a chi ha fatto una segnalazione' + (d.email === true ? ' (anche via email)' : '');
     case 'credits': return d.op === 'gift' ? (d.amount < 0 ? 'ha tolto ' + num(-d.amount) + ' crediti a un utente' : 'ha regalato ' + num(d.amount) + ' crediti a un utente') : d.op === 'plan' ? 'ha attivato il piano ' + (d.plan || '') + ' a un utente' : d.op === 'cancel' ? 'ha chiuso il piano di un utente' : 'ha cambiato i crediti di un utente';
     case 'catalog': return d.op === 'stop_offer' ? 'ha fermato un\'offerta' : d.op === 'save_offer' ? 'ha salvato un\'offerta' : d.op === 'save_plan' ? 'ha modificato un piano' : d.op === 'save_pack' ? 'ha modificato una ricarica' : 'ha modificato il listino';
+    case 'sat_secret': return (d.op === 'get' ? 'ha aperto l\'accesso di ' : 'ha cambiato l\'accesso di ') + (d.title || 'un account delle pagine satellite');
+    case 'sat_save': return d.op === 'page_remove' ? 'ha tolto una pagina satellite' + (d.title ? ' (' + d.title + ')' : '') : 'ha tolto un account delle pagine satellite' + (d.title ? ' (' + d.title + ')' : '');
+    case 'app_save': return d.op === 'token' ? 'ha creato la chiave dati di ' + (d.id || 'un\'app') : d.op === 'token_revoke' ? 'ha tolto la chiave dati di ' + (d.id || 'un\'app')
+      : d.op === 'metrics' ? 'ha scritto i numeri di ' + (d.id || 'un\'app') : d.op === 'metrics_remove' ? 'ha cancellato un dato di ' + (d.id || 'un\'app')
+      : d.op === 'app_remove' ? 'ha tolto l\'app ' + (d.id || '') : 'ha modificato l\'app ' + (d.title || d.id || '');
     default: return a.fn;
   }
 }
@@ -3202,14 +3220,14 @@ function renderApis(main) {
     el('p', { class: 'muted fine', style: 'margin-top:10px' }, 'Controllato ' + when(K.at) + '.'));
 }
 // ------------------------------------------------------------------ avvio
-let startView = 'today';
-try { startView = localStorage.getItem('nuvora.admin.view2') || 'today'; } catch (e) { /* */ }
+let startView = 'home';
+try { startView = localStorage.getItem('nf.admin.view3') || 'home'; } catch (e) { /* */ }
 S.view = startView;
 // ------------------------------------------------------------------ accesso: Google + codice dell'app di autenticazione (2 passaggi)
 let poll = null;
 function screen(...kids) {
   const g = $('#gate'); g.hidden = false; $('.app').hidden = true;
-  rc(g, el('div', { class: 'gate-card' }, el('div', { class: 'gate-logo' }, el('img', { src: 'logo.png', alt: '' }), el('b', null, 'NoonFrame'), el('small', null, 'Admin')), ...kids));
+  rc(g, el('div', { class: 'gate-card' }, el('div', { class: 'gate-logo' }, el('span', { class: 'brand-mk', 'aria-hidden': 'true' }, COMPANY.name.charAt(0)), el('b', null, COMPANY.name), el('small', null, COMPANY.label)), ...kids));
 }
 function codeForm(label, onCode) {
   const inp = el('input', { class: 'gate-code', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6', placeholder: '000000', 'aria-label': 'Codice a 6 cifre' });
@@ -3226,7 +3244,7 @@ async function gate(note) {
   if (poll) { clearInterval(poll); poll = null; }
   const { data: { session } } = await sb.auth.getSession();
   if (!session) {
-    screen(el('h1', null, 'Accedi'), el('p', { class: 'muted' }, 'Per il team di NoonFrame. Entri con Google e un codice a 6 cifre.'),
+    screen(el('h1', null, 'Accedi'), el('p', { class: 'muted' }, 'Per il team di ' + COMPANY.name + '. Entri con Google e un codice a 6 cifre.'),
       note ? el('p', { class: 'gate-err' }, note) : null,
       el('button', { class: 'btn primary', type: 'button', onclick: () => sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/' } }) }, 'Accedi con Google'));
     return;
@@ -3272,11 +3290,12 @@ async function enter() {
   try { ME = await sql('me'); } catch (e) { if (!READY) return; ME = null; }
   if (!ME) { screen(el('h1', null, 'Errore'), el('p', { class: 'gate-err' }, 'Non riesco a leggere i tuoi permessi. Riprova tra poco.'), el('button', { class: 'btn', type: 'button', onclick: () => location.reload() }, 'Riprova')); return; }
   paintMe();
+  extHook('onEnter');
   $('#gate').hidden = true; $('.app').hidden = false;
-  go(allowed(S.view) ? S.view : (allowed('today') ? 'today' : 'overview'));
+  go(allowed(S.view) ? S.view : 'home');
   load(S.view, true);
   poll = setInterval(() => { if (document.visibilityState === 'visible') load(S.view, true); }, 120000);
 }
 $('#logout').addEventListener('click', async () => { await sb.auth.signOut(); gate(); });
 sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') { READY = false; } });
-gate();
+window.addEventListener('DOMContentLoaded', () => gate());
