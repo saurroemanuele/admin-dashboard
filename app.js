@@ -75,7 +75,7 @@ function lightbox(u) { const lb = el('div', { class: 'lightbox', onclick: () => 
 const S = { view: 'overview', tf: 'all', tp: '', ov: null, users: null, reports: null, uq: '', uf: 'all', rtab: 'nuova', rq: '', rsel: null, rdet: {}, drafts: {} };
 let lastLoad = null;
 // 'brand' = sezione Personal brand del proprietario (lead di saurroemanuele.com): NON rimuoverla quando modifichi il pannello
-const VIEW_PERM = { today: 'launch', people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', revenue: 'money', webclip: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team', brand: 'brand_owner' };
+const VIEW_PERM = { today: 'launch', people: 'founders', creators: 'creators', mail: 'creators', overview: '', apis: 'money', status: '', messages: 'messages', money: 'money', revenue: 'money', webclip: 'money', aff: 'money', launch: 'launch', site: 'launch', social: '', tasks: 'tasks', reports: 'reports', updates: '', users: 'users', shop: 'shop', beta: 'beta', team: 'team', brand: 'brand_owner' };
 const allowed = (v) => v in VIEW_PERM && (!VIEW_PERM[v] || CAN(VIEW_PERM[v]));
 const ROLE_NAME = { owner: 'Proprietario', admin: 'Admin', supporto: 'Supporto', sviluppo: 'Sviluppo', marketing: 'Marketing', lettura: 'Solo lettura', custom: 'Personalizzato' };
 function paintMe() {
@@ -116,6 +116,7 @@ async function load(view, force) {
     if (view === 'revenue' && (force || !S.fin)) S.fin = await loadFin();
     if (view === 'webclip' && (force || !S.wc)) S.wc = await sql('webclip', { days: S.wdays || 30 });
     if (view === 'apis' && (force || !S.keys)) S.keys = await loadKeys();
+    if (view === 'aff' && (force || !S.aff)) S.aff = await sql('affiliates');
     if (view === 'tasks' && (force || !S.tasks)) S.tasks = await sql('tasks');
     if ((view === 'creators' || view === 'mail') && (force || !S.cr)) S.cr = await sql('creators');
     if (view === 'people' && (force || !S.ppl)) S.ppl = await sql('people_stats');
@@ -153,6 +154,7 @@ function render() {
   if (S.view === 'revenue') renderRevenue(main);
   if (S.view === 'webclip') renderWebclip(main);
   if (S.view === 'apis') renderApis(main);
+  if (S.view === 'aff') renderAffiliates(main);
   if (S.view === 'updates') renderUpdates(main);
 }
 const SUB = {
@@ -174,6 +176,7 @@ const SUB = {
   Stato: 'Se i servizi di NoonFrame funzionano. Se qualcosa diventa rosso, è da sistemare.',
   Messaggi: 'Avvisi e novità che arrivano nella campanella dell\'app.',
   'Clip dal web': 'Le clip create dal sito: quanti lavori, quanto costano davvero (AI e server) e quanto rendono. Da qui metti il tetto di spesa o le fermi.',
+  Affiliati: 'I creator che portano abbonati con il loro link o codice: quanto hanno portato, quanto gli spetta e quando pagarli.',
   Fatturato: 'I soldi veri da Stripe: quanto è entrato, chi ha pagato e cosa, quanto ci resta dopo commissioni, costi e spese.',
   Soldi: 'Quanto costano davvero le AI e quanti crediti sono ancora in giro.',
   Aggiornamenti: 'Tutte le versioni di NoonFrame: cosa c\'è in beta, cosa hanno gli utenti e cosa è cambiato ogni volta.',
@@ -3033,6 +3036,121 @@ const PROVIDERS = [
   { id: 'resend', name: 'Resend', use: 'Email: link di download e risposte del team', key: 'RESEND_API_KEY', links: [['Piano', 'https://resend.com/settings/billing'], ['Domini', 'https://resend.com/domains'], ['Chiavi', 'https://resend.com/api-keys']] },
   { id: 'supabase', name: 'Supabase', use: 'Database, accessi e server dell\'app', links: [['Piano e consumi', PROJ_URL + '/settings/billing/usage'], ['Dove si mettono le chiavi', PROJ_URL + '/functions/secrets']] },
 ];
+// ------------------------------------------------------------------ affiliati: creator pagati a percentuale sugli abbonamenti che portano
+const AFF_LINK = (code) => SB_URL + '/functions/v1/affiliate?c=' + encodeURIComponent(code);
+const AFF_ERR = { code_taken: 'Questo codice esiste già (qui o su Stripe): scegline un altro.', name: 'Manca il nome del creator.', code: 'Il codice va da 3 a 20 lettere o numeri, senza spazi.',
+  range: 'Controlla i numeri: percentuale 1–60, mesi 1–120, sconto 1–50.', email: 'Email non valida.', stripe_missing: 'Stripe non è configurato.', stripe_error: 'Stripe ha rifiutato la richiesta.',
+  mfa_required: 'Accesso scaduto: entra di nuovo.', no_perm: 'Non hai il permesso per farlo.', nothing_due: 'Non c\'è niente di maturato da pagare.', user_missing_or_taken: 'Utente non trovato o già legato a un creator.' };
+async function affFn(body) {
+  const { data, error } = await sb.functions.invoke('affiliate', { body });
+  if (error) {
+    let j = {}; try { j = await error.context.json(); } catch (_) { }
+    throw { code: 'db', message: (AFF_ERR[j.error] || j.error || 'Errore') + (j.detail && j.error === 'stripe_error' ? ' (' + j.detail + ')' : '') };
+  }
+  return data;
+}
+function renderAffiliates(main) {
+  const body = el('div', { class: 'body' });
+  rc(main, head('Affiliati'), body);
+  if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+  const A = S.aff; if (!A) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+  const c2e = (c) => eur((+c || 0) / 100);
+  const kpi = (v, label, sub, cls) => el('div', { class: 'kpi' + (cls ? ' ' + cls : '') }, el('b', null, v), el('span', null, label), sub ? el('small', null, sub) : null);
+  const reload = async (msg) => { try { S.aff = await sql('affiliates'); S.err = null; if (msg) toast(msg); } catch (e) { toast(explain(e)); } renderAffiliates(main); };
+  const save = async (arg, msg) => { try { S.aff = await sql('affiliate_save', arg); toast(msg); } catch (e) { toast(explain(e)); } renderAffiliates(main); };
+  const copy = async (txt, msg) => { try { await navigator.clipboard.writeText(txt); toast(msg); } catch (e) { toast('Copia non riuscita'); } };
+  const P = A.partners || [];
+  const tot = (k) => P.reduce((s, p) => s + (+p[k] || 0), 0);
+
+  // collegamento a Stripe (una volta sola)
+  const hook = A.webhook ? null : el('div', { class: 'box ask', style: 'margin:0' },
+    el('h3', null, 'Collega Stripe'),
+    el('p', null, 'Serve una volta sola: crea su Stripe un webhook dedicato agli affiliati, così ogni pagamento, rinnovo e rimborso aggiorna le commissioni da solo. Il webhook attuale dei pagamenti non viene toccato.'),
+    el('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
+      if (!confirm('Creo il webhook "NoonFrame affiliati creator" sul tuo account Stripe?')) return;
+      e.currentTarget.disabled = true;
+      try { const r = await affFn({ op: 'setup_webhook' }); await reload(r.already ? 'Stripe era già collegato' : 'Stripe collegato'); } catch (err) { toast(explain(err)); e.currentTarget.disabled = false; }
+    } }, 'Collega Stripe'));
+
+  // nuovo creator
+  const f = {
+    name: el('input', { class: 'search', placeholder: 'Nome (es. Marco)', 'aria-label': 'Nome del creator', maxlength: '80' }),
+    code: el('input', { class: 'search', placeholder: 'Codice (es. MARCO)', 'aria-label': 'Codice sconto', maxlength: '20', style: 'text-transform:uppercase' }),
+    email: el('input', { class: 'search', type: 'email', placeholder: 'Email (facoltativa)', 'aria-label': 'Email del creator' }),
+    pct: el('input', { class: 'search', type: 'number', min: '1', max: '60', value: '30', 'aria-label': 'Percentuale sugli abbonamenti', style: 'width:80px' }),
+    months: el('input', { class: 'search', type: 'number', min: '1', max: '120', value: '12', 'aria-label': 'Mesi di commissione per utente', style: 'width:80px' }),
+    disc: el('input', { class: 'search', type: 'number', min: '1', max: '50', value: '10', 'aria-label': 'Sconto per chi usa il codice', style: 'width:80px' }),
+    pack: el('input', { class: 'search', type: 'number', min: '0', max: '60', value: '0', 'aria-label': 'Percentuale sulle ricariche', style: 'width:80px' }),
+  };
+  f.name.addEventListener('input', () => { if (!f.code.dataset.touched) f.code.value = f.name.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 14) + (f.name.value ? f.disc.value : ''); });
+  f.code.addEventListener('input', () => { f.code.dataset.touched = '1'; });
+  const lab = (t, input) => el('label', { class: 'aff-f' }, el('span', null, t), input);
+  const createBtn = el('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
+    const b = { op: 'create', name: f.name.value.trim(), code: f.code.value.trim().toUpperCase(), email: f.email.value.trim(), pct: +f.pct.value, months: +f.months.value, discount_pct: +f.disc.value, pack_pct: +f.pack.value };
+    if (!b.name) { toast(AFF_ERR.name); return; }
+    if (!/^[A-Z0-9]{3,20}$/.test(b.code)) { toast(AFF_ERR.code); return; }
+    e.currentTarget.disabled = true;
+    try { const r = await affFn(b); await reload('Creator creato: codice ' + r.code + ' attivo su Stripe'); } catch (err) { toast(explain(err)); e.currentTarget.disabled = false; }
+  } }, 'Crea creator e codice');
+  const form = el('div', { class: 'card' }, el('h2', null, 'Nuovo creator'),
+    el('div', { class: 'aff-form' }, lab('Nome', f.name), lab('Codice sconto', f.code), lab('Email', f.email),
+      lab('% abbonamenti', f.pct), lab('Per mesi', f.months), lab('Sconto cliente %', f.disc), lab('% ricariche', f.pack)),
+    el('p', { class: 'muted fine', style: 'margin:10px 0 12px' }, 'Crea il codice su Stripe (sconto sul primo pagamento, solo per nuovi clienti) e il link da dare al creator. La commissione vale per ogni pagamento dei clienti portati, per i mesi indicati, e diventa pagabile dopo 30 giorni (copre rimborsi e chargeback).'),
+    createBtn);
+
+  // un creator
+  const partner = (p) => {
+    const pctIn = el('input', { class: 'search', type: 'number', min: '0', max: '60', value: String(+p.pct), 'aria-label': 'Percentuale abbonamenti', style: 'width:70px' });
+    const moIn = el('input', { class: 'search', type: 'number', min: '1', max: '120', value: String(p.months), 'aria-label': 'Mesi', style: 'width:70px' });
+    const packIn = el('input', { class: 'search', type: 'number', min: '0', max: '60', value: String(+p.pack_pct), 'aria-label': 'Percentuale ricariche', style: 'width:70px' });
+    const asIn = el('input', { class: 'search', type: 'email', placeholder: 'email utente', 'aria-label': 'Email utente da assegnare', style: 'width:200px' });
+    return el('div', { class: 'card aff-card' + (p.active ? '' : ' aff-off') },
+      el('div', { class: 'row wrap', style: 'justify-content:space-between;gap:8px' },
+        el('h2', { style: 'margin:0' }, p.name, ' ', el('span', { class: 'pill ' + (p.active ? 'done' : 'no') }, p.active ? 'attivo' : 'in pausa')),
+        el('div', { class: 'row wrap' },
+          el('button', { class: 'btn sm', type: 'button', onclick: () => copy(p.code, 'Codice copiato') }, 'Codice ', el('b', null, p.code)),
+          el('button', { class: 'btn sm', type: 'button', onclick: () => copy(AFF_LINK(p.code), 'Link copiato') }, 'Copia link'))),
+      el('p', { class: 'muted fine', style: 'margin:6px 0 12px' }, (+p.pct) + '% sugli abbonamenti per ' + p.months + ' mesi' + (+p.pack_pct ? ' · ' + (+p.pack_pct) + '% sulle ricariche' : '') + ' · sconto cliente ' + p.discount_pct + '%' + (p.email ? ' · ' + p.email : '') + (p.stripe_promo ? '' : ' · ⚠ codice Stripe mancante')),
+      el('div', { class: 'kpis' },
+        kpi(num(p.clicks), 'Click sul link', num(p.clicks_7d) + ' negli ultimi 7 giorni'),
+        kpi(num(p.signups), 'Clienti portati', 'col link, col codice o a mano'),
+        kpi(num(p.active_subs), 'Abbonati attivi', num(p.payers) + ' hanno pagato almeno una volta'),
+        kpi(c2e(p.revenue_cents), 'Incassato', 'senza IVA'),
+        kpi(c2e(p.due_cents), 'Da pagare ora', c2e(p.waiting_cents) + ' in maturazione · ' + c2e(p.paid_cents) + ' già pagati', +p.due_cents > 0 ? 'hot' : '')),
+      el('div', { class: 'row wrap', style: 'margin-top:12px;gap:8px' },
+        +p.due_cents > 0 ? el('button', { class: 'btn primary', type: 'button', onclick: () => {
+          if (confirm('Hai pagato ' + p.name + ' ' + c2e(p.due_cents) + '? Le commissioni maturate verranno segnate come pagate.')) save({ op: 'pay', id: p.id }, 'Segnato come pagato');
+        } }, 'Segna pagato ' + c2e(p.due_cents)) : null,
+        el('span', { class: 'muted fine' }, '%'), pctIn, el('span', { class: 'muted fine' }, 'mesi'), moIn, el('span', { class: 'muted fine' }, '% ricariche'), packIn,
+        el('button', { class: 'btn sm', type: 'button', onclick: () => save({ op: 'update', id: p.id, pct: +pctIn.value, months: +moIn.value, pack_pct: +packIn.value }, 'Salvato') }, 'Salva'),
+        el('button', { class: 'btn sm ghost', type: 'button', onclick: () => save({ op: 'update', id: p.id, active: !p.active }, p.active ? 'Creator in pausa: niente nuove commissioni' : 'Creator riattivato') }, p.active ? 'Metti in pausa' : 'Riattiva')),
+      el('div', { class: 'row wrap', style: 'margin-top:8px;gap:8px' },
+        el('span', { class: 'muted fine' }, 'Cliente che ha dimenticato il codice:'), asIn,
+        el('button', { class: 'btn sm', type: 'button', onclick: () => { if (asIn.value.trim()) save({ op: 'assign', id: p.id, email: asIn.value.trim() }, 'Utente assegnato a ' + p.name); } }, 'Assegna')));
+  };
+
+  const R = A.recent || [];
+  const KIND = { sub: 'Abbonamento', pack: 'Ricarica', reversal: 'Storno' };
+  const table = R.length ? el('div', { class: 'card' }, el('h2', null, 'Ultime commissioni'),
+    el('div', { style: 'overflow-x:auto' }, el('table', { class: 'tbl' },
+      el('thead', null, el('tr', null, ...['Data', 'Creator', 'Cliente', 'Tipo', 'Incasso', '%', 'Commissione', 'Stato'].map((h) => el('th', null, h)))),
+      el('tbody', null, ...R.map((r) => el('tr', { style: 'cursor:default' },
+        el('td', null, when(r.created_at)), el('td', null, r.partner_name), el('td', null, r.user_email || '—'),
+        el('td', null, KIND[r.kind] + (r.note ? ' (' + r.note + ')' : '')), el('td', null, r.amount_cents ? c2e(r.amount_cents) : '—'), el('td', null, (+r.pct) + '%'),
+        el('td', null, el('b', null, c2e(r.commission_cents))),
+        el('td', null, r.status === 'paid' ? el('span', { class: 'pill done' }, 'pagata') : new Date(r.available_at) <= new Date() ? el('span', { class: 'pill new' }, 'da pagare')
+          : el('span', { class: 'pill no' }, 'matura il ' + new Date(r.available_at).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }))))))))) : null;
+
+  rc(body, el('div', { class: 'ov' }, hook,
+    P.length ? el('div', { class: 'kpis' },
+      kpi(num(P.filter((p) => p.active).length), 'Creator attivi'),
+      kpi(num(tot('active_subs')), 'Abbonati portati', num(tot('signups')) + ' clienti attribuiti'),
+      kpi(c2e(tot('revenue_cents')), 'Incassato dai creator'),
+      kpi(c2e(tot('due_cents')), 'Da pagare ora', c2e(tot('waiting_cents')) + ' in maturazione', tot('due_cents') > 0 ? 'hot' : '')) : null,
+    form, ...P.map(partner), table,
+    P.length ? null : el('p', { class: 'muted', style: 'margin:0' }, 'Nessun creator ancora: crea il primo qui sopra.')));
+}
+
 async function loadKeys() {
   const { data, error } = await sb.functions.invoke('admin-keys', { body: {} });
   if (error) {
