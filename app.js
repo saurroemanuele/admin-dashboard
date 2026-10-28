@@ -1385,8 +1385,10 @@ function linkRequests(R) {
 const BRAND_Q = [['chi_sei', 'Chi è'], ['follower', 'Follower'], ['guadagni', 'Guadagna oggi'], ['budget', 'Budget'], ['problema', 'Problema'], ['obiettivo', 'Obiettivo']];
 const BRAND_SRC = { commenti: 'Commenti IG', dm: 'DM Instagram', bio: 'Link in bio', ig: 'Instagram', diretto: 'Diretto', test: 'Test' };
 async function brandReload(main) { S.brand = null; renderBrand(main); try { S.brand = await sql('brand_funnel', { days: S.bdays }); S.err = null; } catch (e) { S.err = explain(e); } renderBrand(main); }
+// un testo che inizia con = + - @ (o tab, a capo) Excel lo eseguirebbe come formula: nomi e risposte li scrivono gli utenti
+const csvCell = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
 function brandCsv(rows) {
-  const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const q = csvCell;
   const lines = [['Data', 'Email', 'Nome', 'Fonte', ...BRAND_Q.map((x) => x[1])].map(q).join(';')];
   rows.forEach((l) => lines.push([full(l.at), l.email, l.name, l.source, ...BRAND_Q.map(([k]) => (l.answers || {})[k])].map(q).join(';')));
   const a = el('a', { href: URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })), download: 'lead-saurroemanuele-' + new Date().toISOString().slice(0, 10) + '.csv' });
@@ -2949,7 +2951,7 @@ function subsLine(sales) {
   return sales.length ? num(p) + (p === 1 ? ' ricarica' : ' ricariche') + ' · ' + num(s) + (s === 1 ? ' abbonamento' : ' abbonamenti') : 'nessuna vendita';
 }
 function finCsv(rows, who) {
-  const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const q = csvCell;
   const n = (v) => (+v || 0).toFixed(2).replace('.', ',');
   const lines = [['Data', 'Cliente', 'Cosa', 'Metodo', 'Lordo €', 'Commissione €', 'Netto €', 'Stato'].join(';'),
     ...rows.map((r) => [new Date(r.at).toLocaleString('it-IT', { timeZone: 'Europe/Rome' }), r.kind === 'payout' ? 'Stripe' : who(r.uid), r.what, FIN_PM[r.method] || r.method || '', n(r.gross), n(r.fee), n(r.net), r.refunded ? 'rimborsato' : r.status].map((v, i) => i >= 4 && i <= 6 ? v : q(v)).join(';'))];
