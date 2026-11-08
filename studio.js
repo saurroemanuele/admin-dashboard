@@ -991,7 +991,7 @@
   const LEAD_T = { investitore: ['Investitore', 'queued'], founder: ['Founder', 'try'], creator: ['Creator', 'new'], contatto: ['Contatto', 'no'] };
   const LEAD_S = { nuovo: ['Da gestire', 'new'], contattato: ['Contattato', 'done'], archiviato: ['Archiviato', 'no'] };
   const LEAD_F = [['ruolo', 'Chi è'], ['ticket', 'Ticket indicativo'], ['fonte', 'Come ci ha conosciuto'], ['telefono', 'Telefono'], ['linkedin', 'LinkedIn'],
-    ['app_link', 'Link dell\'app'], ['handle', 'Profilo social'], ['follower', 'Follower'], ['messaggio', 'Messaggio']];
+    ['app_link', 'Link dell\'app'], ['handle', 'Profilo social'], ['follower', 'Follower'], ['messaggio', 'Messaggio'], ['src', 'Arrivato da']];
   Object.assign(SUB, { 'Lead dal sito': 'Chi ha compilato un form su yunoly.com: investitori, founder di app, creator e contatti. Li vede solo chi ha il permesso.' });
   const leadPill = (map, k) => { const x = map[k] || [k, 'no']; return el('span', { class: 'pill ' + x[1] }, x[0]); };
   const extUrl = (u) => { u = String(u || '').trim(); if (!u) return ''; if (!/^https?:\/\//i.test(u)) u = 'https://' + u.replace(/^\/+/, ''); try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch (e) { return ''; } };
@@ -1044,8 +1044,25 @@
         kpi(num(c.nuovi || 0), 'Da gestire', 'Ancora nessuno li ha ricontattati', c.nuovi ? 'hot' : null),
         kpi(num(c.settimana || 0), 'Ultimi 7 giorni', 'Nuove richieste'),
         kpi(num(c.investitore || 0), 'Investitori', 'Hanno chiesto il deck')),
+      srcCard(D.sources || []),
       el('div', { class: 'card' }, el('h2', null, 'Richieste', el('span', { class: 'leg' }, st, q,
         el('button', { class: 'btn sm', type: 'button', disabled: all.length ? null : true, onclick: () => leadsCsv(rows()) }, 'Scarica CSV'))), wrap)));
+  }
+  // da dove arrivano: link con ?da=storie, ?da=bio ... (visite anonime, una per sessione)
+  const SRC_NAME = { storie: 'Storie Instagram', bio: 'Bio Instagram', diretto: 'Diretto o senza etichetta' };
+  function srcCard(list) {
+    const pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 + '%' : '—');
+    const tot = list.reduce((n, x) => n + Number(x.visite || 0), 0);
+    return el('div', { class: 'card' }, el('h2', null, 'Da dove arrivano', el('span', { class: 'leg' }, 'Visite e candidature per link. Usa yunoly.com/?da=nome per ogni posto in cui lo pubblichi')),
+      !list.length ? el('div', { class: 'empty' }, 'Ancora nessuna visita registrata. Pubblica i link con ?da=storie e ?da=bio.') :
+      el('div', { style: 'overflow-x:auto' }, el('table', { class: 'tbl' },
+        el('thead', null, el('tr', null, el('th', null, 'Provenienza'), el('th', null, 'Visite'), el('th', null, 'Ultimi 30 gg'), el('th', null, 'Candidature'), el('th', null, 'Conversione'))),
+        el('tbody', null, ...list.map((x) => el('tr', null,
+          el('td', null, el('b', null, SRC_NAME[x.src] || x.src), SRC_NAME[x.src] ? el('small', { class: 'muted', style: 'margin-left:6px' }, '?da=' + x.src) : null),
+          el('td', null, num(x.visite || 0)), el('td', null, num(x.visite30 || 0)), el('td', null, num(x.lead || 0)),
+          el('td', null, pct(Number(x.lead || 0), Number(x.visite || 0)))))),
+        tot ? el('tfoot', null, el('tr', null, el('td', null, el('b', null, 'Totale')), el('td', null, num(tot)), el('td', null, num(list.reduce((n, x) => n + Number(x.visite30 || 0), 0))),
+          el('td', null, num(list.reduce((n, x) => n + Number(x.lead || 0), 0))), el('td', null, pct(list.reduce((n, x) => n + Number(x.lead || 0), 0), tot)))) : null)));
   }
   function leadsCsv(rows) {
     const cols = [['created_at', 'Data'], ['tipo', 'Tipo'], ['stato', 'Stato'], ['nome', 'Nome'], ['email', 'Email'], ...LEAD_F, ['nota', 'Nota']];
