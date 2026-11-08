@@ -2,7 +2,7 @@
 
 - Before editing, always `git pull` / start from the latest `origin/main`: more than one session works on this repo, and editing a stale copy of `app.js` silently removes other sections.
 - Never rewrite `app.js` wholesale; make targeted edits and keep every existing view (`VIEW_PERM`, `load()`, `render()`, `SUB`, nav buttons in `index.html`).
-- Owner-only "Personal brand" section (view `brand`, perm `brand_owner`, RPC `brand_funnel` / `brand_lead_delete`): leads and funnel of saurroemanuele.com. Must stay.
+- The "Personal brand" section (saurroemanuele.com funnel) was removed from the panel on request (nov 2026). Its data (`public.brand_leads`, `brand_funnel_events`) and the site endpoints stay in the database; routes `brand_funnel` / `brand_lead_delete` still exist in `admin_call` but have no UI.
 - Bump the `?v=` cache numbers in `index.html` when changing `app.js` / `app.css` / `studio.js` / `studio.css` / `yunoly.css`.
 - Owner-only "Lead dal sito" section (view `leads`, perm `yunoly_leads`, in `studio.js`): requests from the yunoly.com forms (investitore, founder, creator, contatto). Table `admin_api.yunoly_leads`, written only by `public.submit_yunoly_lead(p)` (rate limited via `webclip_hit`); routes `yunoly_leads`, `yunoly_lead_save`, `yunoly_lead_delete` (audited) in `admin_call`.
 
