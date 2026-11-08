@@ -1,0 +1,59 @@
+/* Yunoly: tema chiaro come yunoly.com. Caricato per ultimo, sovrascrive app.css e studio.css. */
+@font-face { font-family: 'Plus Jakarta Sans'; font-style: normal; font-display: swap; font-weight: 200 800;
+  src: url(/fonts/jakarta-latin.woff2) format('woff2-variations'), url(/fonts/jakarta-latin.woff2) format('woff2'); }
+@font-face { font-family: 'Plus Jakarta Sans'; font-style: italic; font-display: swap; font-weight: 200 800;
+  src: url(/fonts/jakarta-latin-italic.woff2) format('woff2-variations'), url(/fonts/jakarta-latin-italic.woff2) format('woff2'); }
+
+:root {
+  --bg: #ffffff; --bg2: #f5f7fb; --panel: #ffffff; --raised: #f2f5fb; --hover: #eaf0fb;
+  --line: rgba(11,15,25,.08); --line2: rgba(11,15,25,.14);
+  --text: #0b0f19; --text2: #3d4557; --text3: #5b6478;
+  --accent: #1e5ef5; --accent-hi: #1546c8; --accent-soft: rgba(30,94,245,.10);
+  --c1: #1e5ef5; --c2: #5b8ef8; --c3: #a9c3fb;
+  --bug: #D93A2E; --bug-soft: rgba(217,58,46,.09);
+  --idea: #2F6FD6; --idea-soft: rgba(47,111,214,.09);
+  --ok: #0E8A55; --ok-soft: rgba(14,138,85,.09);
+  --wait: #B26A00; --wait-soft: rgba(178,106,0,.10);
+  --paper: #0b0f19; --ink: #ffffff;
+  --chart-grid: rgba(11,15,25,.07); --chart-axis: #5b6478;
+  --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+}
+body { letter-spacing: -0.01em; }
+* { font-stretch: normal !important; }
+
+::-webkit-scrollbar-thumb { background: #d3d9e6; }
+.drawer-bg { background: rgba(11,15,25,.28); }
+.modal-bg { background: rgba(11,15,25,.36); }
+.gate-card { box-shadow: 0 30px 80px rgba(8,22,70,.12); }
+.gate-card, .modal, .drawer { box-shadow: 0 24px 64px rgba(8,22,70,.12); }
+.asg-pop { background: #fff; box-shadow: 0 18px 40px rgba(8,22,70,.12); }
+
+/* marchio: il logo Yunoly al posto dell'iniziale */
+.brand-mk { background: url(/yunoly-logo.png) center/contain no-repeat !important; color: transparent !important; font-size: 0 !important; border-radius: 0 !important; }
+.brand-wm b, .gate-logo b { font-weight: 700; letter-spacing: -0.03em; text-transform: lowercase; }
+
+/* titoli come sul sito: pieni, compatti */
+.head h1 { font-weight: 700; letter-spacing: -0.03em; }
+.modal h2, .drawer h2, .gate-card h1 { font-weight: 700; letter-spacing: -0.025em; }
+.st-big b, .st-sat-n b { font-weight: 700; letter-spacing: -0.03em; }
+
+/* colori fissi del tema scuro */
+.pill.try, .up-c.beta b { color: #6D4AD8; }
+.pill.try { background: rgba(109,74,216,.10); }
+.mbox.warn .mrow.tot b, .mtag.warn { color: var(--wait); }
+.gr-bar, .gr-pill { background: rgba(11,15,25,.06); }
+.fin-stripe { background: var(--bg2); }
+.ok > .sdot { box-shadow: 0 0 0 4px var(--ok-soft); }
+.warn > .sdot { box-shadow: 0 0 0 4px var(--wait-soft); }
+.bad > .sdot { box-shadow: 0 0 0 4px var(--bug-soft); }
+.st-chart .base { stroke: rgba(11,15,25,.14); }
+.st-chart .st-gl { stroke: rgba(11,15,25,.30); }
+.st-chart .cross { stroke: rgba(11,15,25,.22); }
+.st-tip { background: #ffffff; box-shadow: 0 12px 30px rgba(8,22,70,.12); }
+.st-app:hover { background: var(--hover); }
+.sat-chip[aria-pressed="true"] { border-color: rgba(11,15,25,.22); }
+.btn.primary:hover { background: #1f2638; }
+.yl-f a, .drawer a:not(.btn) { color: var(--accent); }
+.seg button { white-space: nowrap; }

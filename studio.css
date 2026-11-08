@@ -243,3 +243,11 @@
   .sat-tbl .sat-acts { justify-content: flex-start; }
   .sat-acc a, .sat-acc span.h { max-width: 160px; }
 }
+
+/* ---- Lead dal sito */
+.yl-sum { max-width: 360px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yl-facts { display: grid; gap: 10px; }
+.yl-f { display: grid; gap: 2px; }
+.yl-f span { font-size: 12px; color: var(--text3); font-weight: 600; }
+.yl-f b, .yl-f a { font-weight: 500; overflow-wrap: anywhere; white-space: pre-wrap; }
+.drawer .seg { flex-wrap: wrap; }

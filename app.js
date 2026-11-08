@@ -1,8 +1,8 @@
 if (window.top !== window.self) { document.documentElement.innerHTML = ""; throw new Error("frame"); }
 
 const PROJECT = 'jhoidpugjjvvkjccyrxg';
-// Nome della società: per ora NoonFrame. Quando cambia nome, si cambia solo qui (menu, accesso, titolo e icona si aggiornano da soli).
-const COMPANY = { name: 'NoonFrame', label: 'Admin' };
+// Nome della società: Yunoly. Quando cambia nome, si cambia solo qui (menu, accesso, titolo e icona si aggiornano da soli).
+const COMPANY = { name: 'Yunoly', label: 'Admin' };
 document.title = COMPANY.name + ' · ' + COMPANY.label;
 // screenshot delle segnalazioni arrivate prima degli account (restano nell'archivio di questa pagina)
 const FEATURE_NAMES = {
@@ -2425,6 +2425,7 @@ const PERMS = [
   ['apps', 'App del portafoglio', 'Scrivere i numeri delle app partner (es. Strikt), collegare il loro server e modificare le app'],
   ['satellite', 'Pagine satellite: gestirle tutte', 'Creare pagine e account e scrivere i numeri di tutte le pagine. Senza, ognuno aggiorna solo le pagine che gestisce'],
   ['sat_access', 'Pagine satellite: accessi', 'Vedere e cambiare email, telefono e password degli account. Ogni apertura resta nel registro. Lo decide solo il proprietario', 'satellite'],
+  ['yunoly_leads', 'Lead dal sito', 'Investitori, founder e creator che scrivono da yunoly.com, con email e telefono. Lo decide solo il proprietario'],
 ];
 const ROLES = [
   ['admin', 'Admin', 'Tutto', PERMS.map((p) => p[0])],
@@ -2433,7 +2434,7 @@ const ROLES = [
   ['marketing', 'Marketing', 'Numeri, prezzi, offerte, messaggi e pagine satellite', ['launch', 'tasks', 'shop', 'messages', 'satellite']],
   ['lettura', 'Solo lettura', 'Numeri e task', ['launch', 'tasks']],
 ];
-const OWNER_ONLY = ['creators', 'creators_send', 'founders', 'sat_access'];   // chi puo' solo assegnare e chi puo' anche mandare: lo decide solo il proprietario
+const OWNER_ONLY = ['creators', 'creators_send', 'founders', 'sat_access', 'yunoly_leads'];   // chi puo' solo assegnare e chi puo' anche mandare: lo decide solo il proprietario
 const permName = (k) => (PERMS.find((p) => p[0] === k) || [k, k])[1];
 function memberState(m) {
   if (m.role === 'owner') return ['done', 'Proprietario'];

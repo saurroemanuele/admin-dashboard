@@ -995,6 +995,115 @@
     const first = cells[0] && cells[0].inputs.f; if (first) first.focus();
   }
 
+
+  // ---------------------------------------------------------------- Lead dal sito yunoly.com (permesso yunoly_leads)
+  const LEAD_T = { investitore: ['Investitore', 'queued'], founder: ['Founder', 'try'], creator: ['Creator', 'new'], contatto: ['Contatto', 'no'] };
+  const LEAD_S = { nuovo: ['Da gestire', 'new'], contattato: ['Contattato', 'done'], archiviato: ['Archiviato', 'no'] };
+  const LEAD_F = [['ruolo', 'Chi è'], ['ticket', 'Ticket indicativo'], ['fonte', 'Come ci ha conosciuto'], ['telefono', 'Telefono'], ['linkedin', 'LinkedIn'],
+    ['app_link', 'Link dell\'app'], ['handle', 'Profilo social'], ['follower', 'Follower'], ['messaggio', 'Messaggio']];
+  Object.assign(SUB, { 'Lead dal sito': 'Chi ha compilato un form su yunoly.com: investitori, founder di app, creator e contatti. Li vede solo chi ha il permesso.' });
+  const leadPill = (map, k) => { const x = map[k] || [k, 'no']; return el('span', { class: 'pill ' + x[1] }, x[0]); };
+  const extUrl = (u) => { u = String(u || '').trim(); if (!u) return ''; if (!/^https?:\/\//i.test(u)) u = 'https://' + u.replace(/^\/+/, ''); try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch (e) { return ''; } };
+  function leadSummary(l) {
+    if (l.tipo === 'investitore') return [l.ruolo, l.ticket, l.fonte].filter(Boolean).join(' · ');
+    if (l.tipo === 'founder') return l.app_link || l.messaggio || '';
+    if (l.tipo === 'creator') return [l.handle, l.follower].filter(Boolean).join(' · ');
+    return l.messaggio || '';
+  }
+  async function leadsReload(main, msg) { try { S.yl = await sql('yunoly_leads'); S.err = null; } catch (e) { S.err = explain(e); } renderLeads(main); if (msg) toast(msg); }
+  function renderLeads(main) {
+    S.ylt = S.ylt || 'tutti'; S.yls = S.yls || 'aperti'; S.ylq = S.ylq || '';
+    const D = S.yl;
+    const c = (D && D.counts) || {};
+    const seg = el('div', { class: 'seg' }, ...[['tutti', 'Tutti'], ['investitore', 'Investitori'], ['founder', 'Founder'], ['creator', 'Creator'], ['contatto', 'Contatti']].map(([k, l]) =>
+      el('button', { type: 'button', 'aria-pressed': String(S.ylt === k), onclick: () => { S.ylt = k; renderLeads(main); } }, l, el('i', null, num(c[k] || 0)))));
+    const body = el('div', { class: 'body' });
+    rc(main, head('Lead dal sito', seg), body);
+    if (S.err) { rc(body, el('div', { class: 'err' }, S.err)); return; }
+    if (!D) { rc(body, el('div', { class: 'loading' }, 'Caricamento…')); return; }
+    const all = D.leads || [];
+    const kpi = (v, label, sub, cls) => el('div', { class: 'kpi' + (cls ? ' ' + cls : '') }, el('b', null, v), el('span', null, label), sub ? el('small', null, sub) : null);
+    const st = el('div', { class: 'seg' }, ...[['aperti', 'Aperti'], ['nuovo', 'Da gestire'], ['archiviato', 'Archiviati'], ['tutti', 'Tutti']].map(([k, l]) =>
+      el('button', { type: 'button', 'aria-pressed': String(S.yls === k), onclick: () => { S.yls = k; paint(); st.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-pressed', String(['aperti', 'nuovo', 'archiviato', 'tutti'][i] === k))); } }, l)));
+    const q = el('input', { class: 'search', type: 'search', placeholder: 'Cerca nome, email, ruolo, app…', value: S.ylq, 'aria-label': 'Cerca lead' });
+    const wrap = el('div', { style: 'overflow-x:auto' });
+    const rows = () => {
+      const t = S.ylq.trim().toLowerCase();
+      return all.filter((l) => (S.ylt === 'tutti' || l.tipo === S.ylt)
+        && (S.yls === 'tutti' || (S.yls === 'aperti' ? l.stato !== 'archiviato' : l.stato === S.yls))
+        && (!t || JSON.stringify([l.nome, l.email, l.ruolo, l.ticket, l.fonte, l.app_link, l.handle, l.messaggio, l.nota]).toLowerCase().includes(t)));
+    };
+    const paint = () => {
+      const r = rows();
+      if (!r.length) { rc(wrap, el('div', { class: 'empty' }, all.length ? 'Nessun lead con questi filtri.' : 'Ancora nessun lead. Arrivano qui appena qualcuno compila un form su yunoly.com.')); return; }
+      rc(wrap, el('table', { class: 'tbl' },
+        el('thead', null, el('tr', null, el('th', null, 'Quando'), el('th', null, 'Persona'), el('th', null, 'Tipo'), el('th', null, 'Dettagli'), el('th', null, 'Stato'))),
+        el('tbody', null, ...r.map((l) => el('tr', { tabindex: '0', onclick: () => openLead(l, main), onkeydown: (e) => { if (e.key === 'Enter') openLead(l, main); } },
+          el('td', { title: full(l.created_at) }, when(l.created_at)),
+          el('td', null, el('div', { class: 'who' }, el('span', null, el('b', null, l.nome), el('small', null, l.email)))),
+          el('td', null, leadPill(LEAD_T, l.tipo)),
+          el('td', { class: 'yl-sum' }, leadSummary(l) || el('span', { class: 'muted' }, '—')),
+          el('td', null, leadPill(LEAD_S, l.stato)))))));
+    };
+    q.addEventListener('input', () => { S.ylq = q.value; paint(); });
+    paint();
+    rc(body, el('div', { class: 'ov' },
+      el('div', { class: 'kpis' },
+        kpi(num(c.tutti || 0), 'Lead totali', 'Da quando il sito è online'),
+        kpi(num(c.nuovi || 0), 'Da gestire', 'Ancora nessuno li ha ricontattati', c.nuovi ? 'hot' : null),
+        kpi(num(c.settimana || 0), 'Ultimi 7 giorni', 'Nuove richieste'),
+        kpi(num(c.investitore || 0), 'Investitori', 'Hanno chiesto il deck')),
+      el('div', { class: 'card' }, el('h2', null, 'Richieste', el('span', { class: 'leg' }, st, q,
+        el('button', { class: 'btn sm', type: 'button', disabled: all.length ? null : true, onclick: () => leadsCsv(rows()) }, 'Scarica CSV'))), wrap)));
+  }
+  function leadsCsv(rows) {
+    const cols = [['created_at', 'Data'], ['tipo', 'Tipo'], ['stato', 'Stato'], ['nome', 'Nome'], ['email', 'Email'], ...LEAD_F, ['nota', 'Nota']];
+    const cell = (v) => { v = v == null ? '' : String(v); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return '"' + v.replace(/"/g, '""') + '"'; };
+    const csv = [cols.map((c) => cell(c[1])).join(';'), ...rows.map((l) => cols.map(([k]) => cell(k === 'created_at' ? full(l[k]) : l[k])).join(';'))].join('\r\n');
+    const a = el('a', { href: URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })), download: 'yunoly-lead.csv' });
+    document.body.append(a); a.click(); a.remove();
+  }
+  function openLead(l, main) {
+    document.querySelectorAll('.drawer, .drawer-bg').forEach((x) => x.remove());
+    const bg = el('div', { class: 'drawer-bg', onclick: () => close() });
+    const dr = el('aside', { class: 'drawer', role: 'dialog', 'aria-label': 'Lead' });
+    const close = () => { bg.remove(); dr.remove(); document.removeEventListener('keydown', esc); };
+    const esc = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', esc);
+    document.body.append(bg, dr);
+    const save = async (patch, msg) => {
+      try { const nl = await sql('yunoly_lead_save', { id: l.id, ...patch }); Object.assign(l, nl); toast(msg); paintDr(); renderLeads(main); }
+      catch (e) { toast(explain(e)); }
+    };
+    function paintDr() {
+      const note = el('textarea', { class: 'note', placeholder: 'Note per il team (es. call fissata, deck mandato il…)' }); note.value = l.nota || '';
+      const li = extUrl(l.linkedin), app = extUrl(l.app_link);
+      const facts = LEAD_F.filter(([k]) => l[k]).map(([k, lab]) => el('div', { class: 'yl-f' }, el('span', null, lab),
+        k === 'linkedin' && li ? el('a', { href: li, target: '_blank', rel: 'noopener noreferrer' }, l[k])
+          : k === 'app_link' && app ? el('a', { href: app, target: '_blank', rel: 'noopener noreferrer' }, l[k])
+          : k === 'telefono' ? el('a', { href: 'tel:' + String(l[k]).replace(/[^\d+]/g, '') }, l[k])
+          : el('b', null, l[k])));
+      const subj = { investitore: 'Il deck di Yunoly', founder: 'La tua app e Yunoly', creator: 'Creator per Yunoly', contatto: 'Yunoly' }[l.tipo] || 'Yunoly';
+      rc(dr,
+        el('div', { class: 'top' }, el('span', { class: 'av' }, (l.nome || '?').trim().charAt(0).toUpperCase()),
+          el('div', { style: 'min-width:0' }, el('h2', null, l.nome), el('div', { class: 'muted' }, l.email))),
+        el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, leadPill(LEAD_T, l.tipo), leadPill(LEAD_S, l.stato), el('span', { class: 'muted' }, 'Arrivato ' + full(l.created_at))),
+        el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' },
+          el('a', { class: 'btn primary', href: 'mailto:' + encodeURIComponent(l.email) + '?subject=' + encodeURIComponent(subj) }, 'Scrivi una email'),
+          li ? el('a', { class: 'btn', href: li, target: '_blank', rel: 'noopener noreferrer' }, 'Apri LinkedIn') : null),
+        el('div', null, el('h3', null, 'Cosa ci ha scritto'), facts.length ? el('div', { class: 'yl-facts' }, facts) : el('p', { class: 'muted' }, 'Solo nome ed email.')),
+        el('div', null, el('h3', null, 'Stato'), el('div', { class: 'seg' }, ...Object.entries(LEAD_S).map(([k, [lab]]) =>
+          el('button', { type: 'button', 'aria-pressed': String(l.stato === k), onclick: () => { if (l.stato !== k) save({ stato: k }, 'Segnato come "' + lab.toLowerCase() + '"'); } }, lab)))),
+        el('div', null, el('h3', null, 'Nota'), note, el('div', { class: 'row', style: 'margin-top:8px' },
+          el('button', { class: 'btn sm', type: 'button', onclick: () => save({ nota: note.value }, 'Nota salvata') }, 'Salva la nota'))),
+        el('div', { style: 'margin-top:auto;padding-top:12px' }, el('button', { class: 'btn sm ghost', type: 'button', onclick: async () => {
+          if (!window.confirm('Cancellare il lead di ' + l.nome + '? Non si può annullare.')) return;
+          try { await sql('yunoly_lead_delete', { id: l.id }); close(); leadsReload(main, 'Lead cancellato'); } catch (e) { toast(explain(e)); }
+        } }, 'Cancella questo lead')));
+    }
+    paintDr();
+  }
+
   // ---------------------------------------------------------------- registrazione delle sezioni
   EXT.push({
     match: (v) => v === 'home', allowed: () => true,
@@ -1016,5 +1125,10 @@
     match: (v) => v === 'satellite', allowed: () => true,
     load: async (v, force) => { if (force || !S.sat) S.sat = await sql('sat', { weeks: S.satw || 12 }); },
     render: renderSat,
+  });
+  EXT.push({
+    match: (v) => v === 'leads', allowed: () => CAN('yunoly_leads'),
+    load: async (v, force) => { if (force || !S.yl) S.yl = await sql('yunoly_leads'); },
+    render: renderLeads,
   });
 })();
