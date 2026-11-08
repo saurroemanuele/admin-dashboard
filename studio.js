@@ -40,8 +40,10 @@
   const appOf = (id) => appsAll().find((a) => a.id === id) || (S.sat && (S.sat.apps || []).find((a) => a.id === id)) || null;
   const colorOf = (id) => { const a = id && id !== NO_APP.id ? appOf(id) : null; return a ? a.color : NO_APP.color; };
   const nameOf = (id) => { const a = id && id !== NO_APP.id ? appOf(id) : null; return a ? a.name : NO_APP.name; };
+  // icone vere delle app del portafoglio (id del database -> file nel repository); le altre mostrano l'iniziale
+  const APP_ICON = { noonframe: 'apps/noonframe.png', strikt: 'apps/calicam.png' };
   function appMark(a, size) {
-    if (a && a.id === 'noonframe') return el('span', { class: 'app-mk logo' + (size ? ' ' + size : ''), 'aria-hidden': 'true' }, el('img', { src: 'logo.png', alt: '' }));
+    if (a && APP_ICON[a.id]) return el('span', { class: 'app-mk icon' + (size ? ' ' + size : ''), 'aria-hidden': 'true' }, el('img', { src: APP_ICON[a.id], alt: '' }));
     return el('span', { class: 'app-mk' + (size ? ' ' + size : ''), style: '--ac:' + ((a && a.color) || NO_APP.color), 'aria-hidden': 'true' }, ((a && a.name) || '?').trim().charAt(0).toUpperCase());
   }
   const eurS = (v) => { v = +v || 0; const neg = v < 0; v = Math.abs(v); let i = Math.floor(v), d = Math.round((v - i) * 100); if (d === 100) { i++; d = 0; } return (neg ? '−' : '') + num(i) + (d ? ',' + String(d).padStart(2, '0') : '') + ' €'; };
@@ -261,18 +263,7 @@
     const n = $('#brandName'), m = $('#brandMk');
     if (n) n.textContent = COMPANY.name;
     if (m) m.textContent = COMPANY.name.charAt(0).toUpperCase();
-    if (document.fonts && document.fonts.load) document.fonts.load('900 40px "Archivo Variable"').then(favicon, favicon); else favicon();
-  }
-  function favicon() {
-    try {
-      const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
-      g.fillStyle = '#3D82FF'; g.beginPath();
-      if (g.roundRect) g.roundRect(0, 0, 64, 64, 16); else g.rect(0, 0, 64, 64);
-      g.fill(); g.fillStyle = '#FFFFFF'; g.font = '900 40px "Archivo Variable", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(COMPANY.name.charAt(0).toUpperCase(), 32, 35);
-      let l = document.querySelector('link[rel="icon"]'); if (!l) { l = document.createElement('link'); l.rel = 'icon'; document.head.append(l); }
-      l.href = c.toDataURL('image/png');
-    } catch (e) { /* resta l'icona di prima */ }
+    // l'icona della scheda e' il logo Yunoly (favicon.png): niente piu' iniziale disegnata
   }
   const FOLD_KEY = 'nf.admin.fold';
   let FOLD = new Set();

@@ -57,3 +57,10 @@ body { letter-spacing: -0.01em; }
 .btn.primary:hover { background: #1f2638; }
 .yl-f a, .drawer a:not(.btn) { color: var(--accent); }
 .seg button { white-space: nowrap; }
+
+/* icone vere delle app (NoonFrame, CaliCam): quadrato arrotondato come sul telefono */
+.app-mk.icon { background: #0b0f19; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(11,15,25,.08); }
+.app-mk.icon img { border-radius: inherit; }
+.app-mk.sm { width: 20px; height: 20px; border-radius: 6px; }
+.ownbox { background: rgba(30,94,245,.035); }
+.ownbox .own-h + .perm { margin-top: -4px; }

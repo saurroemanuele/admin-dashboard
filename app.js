@@ -2422,7 +2422,7 @@ const PERMS = [
   ['messages', 'Messaggi agli utenti', 'Pubblicare avvisi e novità nella home dell\'app'],
   ['beta', 'Beta tester', 'Chi può provare le versioni nuove'],
   ['team', 'Team e permessi', 'Aggiungere persone e vedere il registro delle azioni'],
-  ['apps', 'App del portafoglio', 'Scrivere i numeri delle app partner (es. Strikt), collegare il loro server e modificare le app'],
+  ['apps', 'App del portafoglio', 'Scrivere i numeri delle app partner (es. CaliCam), collegare il loro server e modificare le app'],
   ['satellite', 'Pagine satellite: gestirle tutte', 'Creare pagine e account e scrivere i numeri di tutte le pagine. Senza, ognuno aggiorna solo le pagine che gestisce'],
   ['sat_access', 'Pagine satellite: accessi', 'Vedere e cambiare email, telefono e password degli account. Ogni apertura resta nel registro. Lo decide solo il proprietario', 'satellite'],
   ['yunoly_leads', 'Lead dal sito', 'Investitori, founder e creator che scrivono da yunoly.com, con email e telefono. Lo decide solo il proprietario'],
@@ -2457,7 +2457,8 @@ function renderTeam(main) {
         el('span', { class: 'av' }, (m.name || m.email)[0].toUpperCase()),
         el('span', { class: 'mb-who' }, el('b', null, m.name || m.email.split('@')[0], m.email === ME.email ? el('small', { class: 'muted' }, ' (tu)') : null), el('small', null, m.email)),
         el('span', { class: 'mb-role' }, el('b', null, ROLE_NAME[m.role] || m.role,
-          ME.role !== 'owner' ? null : m.role === 'owner' || m.perms.includes('creators_send') ? el('span', { class: 'chip ok', style: 'margin-left:6px' }, 'Manda email') : m.perms.includes('creators') ? el('span', { class: 'chip', style: 'margin-left:6px' }, 'Solo assegna') : null),
+          ME.role !== 'owner' ? null : m.role === 'owner' || m.perms.includes('creators_send') ? el('span', { class: 'chip ok', style: 'margin-left:6px' }, 'Manda email') : m.perms.includes('creators') ? el('span', { class: 'chip', style: 'margin-left:6px' }, 'Solo assegna') : null,
+          ME.role === 'owner' && m.role !== 'owner' && m.perms.includes('yunoly_leads') ? el('span', { class: 'chip', style: 'margin-left:6px' }, 'Vede i lead') : null),
           el('small', null, all ? 'Può fare tutto' : m.perms.length ? m.perms.filter((x) => !OWNER_ONLY.includes(x)).map(permName).join(', ') || 'Solo creator' : 'Nessun permesso')),
         el('span', { class: 'mb-st' }, el('span', { class: 'pill ' + cls }, st), el('small', { class: 'muted' }, m.last_seen ? 'Visto ' + when(m.last_seen) : 'Mai entrato')),
         el('span', { class: 'mb-t muted' }, m.open_tasks ? m.open_tasks + (m.open_tasks === 1 ? ' task aperta' : ' task aperte') : ''));
@@ -2512,7 +2513,16 @@ function memberModal(m, main) {
       el('div', { class: 'roles three' }, ...[['none', 'Nessun accesso', 'Non vede Creator ed Email'], ['assign', 'Solo assegnare', 'Mette creator ed email, scrive le bozze e le assegna'], ['send', 'Assegnare e mandare', 'Può anche far partire le email dalla casella ufficiale']].map(([v, l, d]) =>
         el('button', { type: 'button', class: 'role' + (v === 'send' ? ' send' : ''), 'aria-pressed': String(owner || mail === v), disabled: canOwn ? null : true, onclick: () => setMail(v) }, el('b', null, l), el('small', null, d)))),
       el('label', { class: 'perm own-f' }, (() => { const cb = el('input', { type: 'checkbox', checked: owner || perms.has('founders'), disabled: canOwn ? null : true }); cb.addEventListener('change', () => { if (cb.checked) perms.add('founders'); else perms.delete('founders'); paint(); }); return cb; })(),
-        el('span', null, el('b', null, 'Founder: vede la tab Persone'), el('small', null, 'I numeri di ogni persona del team: creator trovati, email, risposte e task'))));
+        el('span', null, el('b', null, 'Founder: vede la tab Persone'), el('small', null, 'I numeri di ogni persona del team: creator trovati, email, risposte e task'))),
+      // dati personali di persone esterne: solo il proprietario decide chi li vede
+      el('div', { class: 'own-h' }, el('b', null, 'Dati riservati')),
+      ...[['yunoly_leads', 'Lead dal sito', 'Investitori, founder e creator che scrivono da yunoly.com: nomi, email e telefoni'],
+        ['sat_access', 'Pagine satellite: accessi', 'Email, telefono e password degli account. Ogni apertura resta nel registro', 'satellite']].map(([k, l, d, needs]) => {
+        const blocked = needs && !perms.has(needs) && !owner;
+        const cb = el('input', { type: 'checkbox', checked: owner || perms.has(k), disabled: canOwn && !blocked ? null : true });
+        cb.addEventListener('change', () => { if (cb.checked) perms.add(k); else perms.delete(k); paint(); });
+        return el('label', { class: 'perm own-f' }, cb, el('span', null, el('b', null, l), el('small', null, blocked ? d + '. Prima serve "' + permName(needs) + '"' : d)));
+      }));
     rc(permBox, ...PERMS.filter(([k]) => !OWNER_ONLY.includes(k)).map(([k, l, d, needs]) => {
       const on = owner || perms.has(k);
       const cb = el('input', { type: 'checkbox', checked: on, disabled: locked(k) || (needs && !perms.has(needs) && !owner) });
